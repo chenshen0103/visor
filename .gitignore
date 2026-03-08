@@ -1,0 +1,68 @@
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual Environment ──────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+
+# ── Model Weights (大檔案，各自下載) ─────────────────────
+# 保留 .gitkeep 但排除實際 .pth/.bin 檔
+src/models/weights/*.pth
+src/models/weights/*.bin
+src/models/weights/*.pt
+# 若要追蹤 placeholder：
+!src/models/weights/.gitkeep
+
+# ── FAISS Index (由 build_rag_index.py 重建) ─────────────
+src/data/scam_corpus/faiss.index
+src/data/scam_corpus/faiss_meta.jsonl
+
+# ── Temp / Test artifacts ────────────────────────────────
+C:/tmp/
+*.mp4.tmp
+*.avi.tmp
+
+# ── Claude Code local settings ───────────────────────────
+.claude/settings.local.json
+
+# ── IDE / OS ─────────────────────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Jupyter ──────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Environment variables ────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── pytest / coverage ────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+*.xml
+
+# ── Logs ─────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Gradio temp uploads ──────────────────────────────────
+gradio_cached_examples/
+flagged/

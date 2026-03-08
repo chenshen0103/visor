@@ -1,0 +1,49 @@
+{
+  "description": "Labelled scam intent examples for archetype centroid calibration",
+  "archetypes": [
+    {
+      "key": "investment_fraud",
+      "name_zh": "高報酬投資詐騙",
+      "examples": [
+        "保證每月30%回報，零風險投資機會",
+        "加密貨幣群組，已有成員月賺百萬",
+        "AI交易機器人，98%勝率",
+        "Guaranteed 50% profit every month on forex",
+        "股票內線消息，明天漲停"
+      ]
+    },
+    {
+      "key": "romance_fraud",
+      "name_zh": "假交友／殺豬盤詐騙",
+      "examples": [
+        "我在新加坡工作，想和你分享投資秘訣",
+        "我很喜歡你，介紹你認識投資平台",
+        "I'm overseas and need you to transfer money",
+        "We've been talking for weeks, please help me financially",
+        "我們的感情那麼好，你能借我一些錢嗎"
+      ]
+    },
+    {
+      "key": "government_impersonation",
+      "name_zh": "假冒公務機關詐騙",
+      "examples": [
+        "刑事局通知您帳戶涉嫌洗錢，請配合轉帳至監管帳戶",
+        "台北地檢署來電，您的帳戶被犯罪集團盜用",
+        "This is the IRS, you owe back taxes",
+        "Social Security number was suspended",
+        "警察局來電：您的帳戶被列為詐騙共犯"
+      ]
+    },
+    {
+      "key": "parcel_fraud",
+      "name_zh": "包裹／物流詐騙",
+      "examples": [
+        "您的包裹因地址不完整無法投遞，請點擊連結更新資料",
+        "包裹在海關滯留，請支付關稅NT$850",
+        "Your DHL package requires customs clearance, pay $25",
+        "Parcel delivery failed, click here to reschedule",
+        "黑貓宅急便通知：需補繳運費，請在24小時內完成付款"
+      ]
+    }
+  ]
+}
