@@ -66,3 +66,6 @@ logs/
 # ── Gradio temp uploads ──────────────────────────────────
 gradio_cached_examples/
 flagged/
+
+# ── Competition documents (internal only) ────────────────
+competition_info/
