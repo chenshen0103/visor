@@ -2,15 +2,20 @@
 ROIExtractor — uses OpenCV Haar cascade to locate face, then derives
 forehead and cheek ROIs from the bounding box for rPPG signal extraction.
 
-Replaces the previous MediaPipe FaceMesh implementation which is no longer
-available in mediapipe ≥ 0.10 (solutions API removed).
+Improvements over the original:
+- EMA (exponential moving average) smoothing of the face bounding box
+  to reduce jitter between frames.
+- When face is lost mid-video, falls back to the last known bbox rather
+  than a fixed centre-of-frame region, so the ROI stays consistent.
+- extract_rgb_series() now also returns the actual video FPS read from
+  the capture device (instead of relying on a hardcoded config value).
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -62,26 +67,37 @@ def _crop_patch(
 
 class ROIExtractor:
     """
-    Face ROI extractor using OpenCV Haar cascade.
+    Face ROI extractor using OpenCV Haar cascade with EMA bbox smoothing.
 
-    Derives three regions from the detected face bounding box:
-    - forehead : top 20% of the face box (centred horizontally)
-    - left_cheek : left-side, mid-height region
-    - right_cheek: right-side, mid-height region
+    Derives three regions from the smoothed face bounding box:
+    - forehead   : top ~10% of face box (centred horizontally)
+    - left_cheek : left quarter at ~55% face height
+    - right_cheek: right quarter at ~55% face height
 
-    Falls back to fixed centre-frame regions when no face is detected.
+    Tracking strategy:
+    - When a face is detected: update EMA bbox.
+    - When no face is detected but a previous bbox exists: reuse last known
+      position (the subject is still in frame; detection just failed).
+    - Only fall back to a fixed centre-frame region if NO face has ever been
+      seen in this clip (first few frames with no detection).
     """
+
+    # EMA smoothing factor (0 = no update, 1 = no smoothing)
+    _EMA_ALPHA = 0.25
 
     def __init__(self, max_num_faces: int = 1, refine_landmarks: bool = False) -> None:
         self._half_fh = ROI_FOREHEAD_H // 2
         self._half_fw = ROI_FOREHEAD_W // 2
         self._half_ch = ROI_CHEEK_H // 2
         self._half_cw = ROI_CHEEK_W // 2
+        # EMA state: float array [x, y, w, h] or None before first detection
+        self._ema_bbox: Optional[np.ndarray] = None
 
     def extract(self, frame: np.ndarray) -> Optional[ROIPatches]:
         """
-        Detect face in *frame* (BGR uint8) and return three ROI patches.
-        Returns None if frame is invalid; uses fixed fallback ROI if no face found.
+        Detect face in *frame* (BGR uint8), update EMA bbox, and return
+        three ROI patches.
+        Returns None only if frame is invalid.
         """
         if frame is None or frame.size == 0:
             return None
@@ -97,28 +113,45 @@ class ROIExtractor:
             flags=cv2.CASCADE_SCALE_IMAGE,
         )
 
-        if len(faces) == 0:
-            # Fallback: use centre of frame as face region
-            fx, fy, fw, fh = w // 4, h // 8, w // 2, int(h * 0.7)
-        else:
-            # Use largest detected face
-            fx, fy, fw, fh = max(faces, key=lambda r: r[2] * r[3])
+        if len(faces) > 0:
+            # Pick the largest detected face
+            best = max(faces, key=lambda r: r[2] * r[3]).astype(float)
+            if self._ema_bbox is None:
+                self._ema_bbox = best
+            else:
+                self._ema_bbox = (
+                    (1.0 - self._EMA_ALPHA) * self._ema_bbox
+                    + self._EMA_ALPHA * best
+                )
 
-        # Forehead: top 20% of face box, centred
+        # Determine working bbox
+        if self._ema_bbox is not None:
+            fx, fy, fw, fh = self._ema_bbox.astype(int)
+        else:
+            # True fallback: no face ever detected — use centre of frame
+            fx, fy, fw, fh = w // 4, h // 8, w // 2, int(h * 0.7)
+
+        # Clamp to frame
+        fx = max(0, min(fx, w - 1))
+        fy = max(0, min(fy, h - 1))
+        fw = max(1, min(fw, w - fx))
+        fh = max(1, min(fh, h - fy))
+
+        # Forehead: top 10% of face box, centred
         fh_cy = fy + int(fh * 0.10)
         fh_cx = fx + fw // 2
 
-        # Left cheek: left quarter of face at mid height
+        # Left cheek: left quarter at 55% face height
         lc_cx = fx + fw // 4
         lc_cy = fy + int(fh * 0.55)
 
-        # Right cheek: right quarter at mid height
+        # Right cheek: right quarter at 55% face height
         rc_cx = fx + int(fw * 0.75)
         rc_cy = fy + int(fh * 0.55)
 
-        forehead   = _crop_patch(frame, fh_cx, fh_cy, self._half_fh, self._half_fw)
-        left_cheek = _crop_patch(frame, lc_cx, lc_cy, self._half_ch, self._half_cw)
-        right_cheek= _crop_patch(frame, rc_cx, rc_cy, self._half_ch, self._half_cw)
+        forehead    = _crop_patch(frame, fh_cx, fh_cy, self._half_fh, self._half_fw)
+        left_cheek  = _crop_patch(frame, lc_cx, lc_cy, self._half_ch, self._half_cw)
+        right_cheek = _crop_patch(frame, rc_cx, rc_cy, self._half_ch, self._half_cw)
 
         return ROIPatches(
             forehead=forehead,
@@ -139,20 +172,32 @@ class ROIExtractor:
 def extract_rgb_series(
     video_path: str,
     max_frames: int = 300,
-) -> Optional[Dict[str, np.ndarray]]:
+) -> Optional[Tuple[Dict[str, np.ndarray], float]]:
     """
     Decode *video_path*, run ROI extraction on every frame, and return
-    mean-RGB time-series per region.
+    mean-RGB time-series per region together with the actual video FPS.
 
     Returns
     -------
-    dict with keys 'forehead', 'left_cheek', 'right_cheek',
-    each a float32 array of shape (T, 3), or None on failure.
+    (series_dict, fps) where series_dict has keys 'forehead',
+    'left_cheek', 'right_cheek', each a float32 array of shape (T, 3).
+    Returns None on failure.
+
+    Note: frames are **not** skipped on Haar-cascade failure; instead the
+    EMA-smoothed previous bbox is reused, keeping the series temporally
+    aligned.
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         logger.error("Cannot open video: %s", video_path)
         return None
+
+    # Read actual FPS from the container (important for correct bandpass
+    # filter cut-offs and FFT frequency bins).
+    actual_fps = cap.get(cv2.CAP_PROP_FPS)
+    if actual_fps <= 0:
+        actual_fps = 30.0
+        logger.warning("Could not read FPS from %s; defaulting to 30", video_path)
 
     series: Dict[str, list] = {"forehead": [], "left_cheek": [], "right_cheek": []}
     frames_read = 0
@@ -179,4 +224,4 @@ def extract_rgb_series(
         logger.warning("No usable frames in video: %s", video_path)
         return None
 
-    return {k: np.stack(v, axis=0) for k, v in series.items()}
+    return {k: np.stack(v, axis=0) for k, v in series.items()}, actual_fps

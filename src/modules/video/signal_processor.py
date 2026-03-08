@@ -3,6 +3,7 @@ signal_processor — physiological signal processing utilities.
 
 Functions
 ---------
+pos_bvp             — POS (Plane Orthogonal to Skin) classical rPPG
 bandpass_filter     — 4th-order zero-phase Butterworth bandpass
 detect_peaks        — heartbeat peak finder
 estimate_hr         — heart-rate estimation in BPM
@@ -33,6 +34,49 @@ class SignalStats:
     snr_db: float           # signal-to-noise ratio
     n_peaks: int            # number of detected heartbeat peaks
     filtered_signal: np.ndarray  # bandpass-filtered BVP
+
+
+def pos_bvp(rgb_series: np.ndarray) -> np.ndarray:
+    """
+    POS (Plane Orthogonal to Skin) classical rPPG algorithm.
+
+    Reference: de Haan & Jeanne, "Robust Pulse Rate From Chrominance-Based
+    rPPG", IEEE Trans. Biomed. Eng., 2013.
+
+    Does NOT require a trained model — extracts the blood volume pulse
+    directly from per-channel RGB variation.
+
+    Parameters
+    ----------
+    rgb_series : np.ndarray, shape (T, 3), float32
+        Mean-RGB time-series for one ROI (channels: R=0, G=1, B=2).
+
+    Returns
+    -------
+    np.ndarray, shape (T,)
+        BVP signal (z-score normalised), float32.
+    """
+    if rgb_series.shape[0] < 2:
+        return np.zeros(rgb_series.shape[0], dtype=np.float32)
+
+    # 1. Normalise each channel by its temporal mean
+    mu = rgb_series.mean(axis=0, keepdims=True) + 1e-8  # (1, 3)
+    C = rgb_series / mu  # (T, 3)
+
+    # 2. POS projection
+    #    H1 = G - B
+    #    H2 = -2R + G + B
+    H1 = C[:, 1] - C[:, 2]
+    H2 = -2.0 * C[:, 0] + C[:, 1] + C[:, 2]
+
+    # 3. Adaptive weighting by standard deviation ratio
+    sigma_H1 = H1.std() + 1e-8
+    sigma_H2 = H2.std() + 1e-8
+    bvp = H1 + (sigma_H1 / sigma_H2) * H2
+
+    # 4. Z-score normalise
+    bvp = (bvp - bvp.mean()) / (bvp.std() + 1e-8)
+    return bvp.astype(np.float32)
 
 
 def bandpass_filter(

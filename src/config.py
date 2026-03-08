@@ -46,8 +46,11 @@ PEAK_MIN_DISTANCE_SEC = 0.3     # minimum seconds between heartbeat peaks
 PEAK_PROMINENCE = 0.05
 
 # Sync / authenticity thresholds
-SYNC_REAL_THRESHOLD = 0.80      # Pearson r above this → real
-SYNC_FAKE_THRESHOLD = 0.50      # Pearson r below this → fake
+# Calibrated against UBFC-rPPG real videos using POS classical rPPG:
+#   real videos show POS sync in range [-0.07, 0.65] → threshold at 0.35
+#   AI-generated video should show sync ≈ 0 with low SNR
+SYNC_REAL_THRESHOLD = 0.35      # Pearson r above this → real region
+SYNC_FAKE_THRESHOLD = 0.10      # Pearson r below this → fake region
 SNR_MIN_REAL = 3.0              # dB
 
 # Video verdict confidence weights

@@ -78,12 +78,14 @@ class UBFCDataset(Dataset):
         video_path, gt_path = self.samples[idx]
 
         # Extract forehead RGB series
-        series = extract_rgb_series(str(video_path), max_frames=self.max_frames)
-        if series is None:
+        # extract_rgb_series returns (series_dict, actual_fps) or None
+        result = extract_rgb_series(str(video_path), max_frames=self.max_frames)
+        if result is None:
             # Return zeros as fallback (should not happen on clean dataset)
             rgb = np.zeros((self.max_frames, 3), dtype=np.float32)
             bvp = np.zeros(self.max_frames, dtype=np.float32)
         else:
+            series, _fps = result
             rgb = series["forehead"][: self.max_frames]  # (T, 3)
             bvp = self._load_bvp(gt_path)[: self.max_frames]
 
