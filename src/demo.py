@@ -118,12 +118,18 @@ def _download_url(url: str) -> str:
 
     ydl_opts = {
         "outtmpl": out_template,
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        # Select only pre-muxed single-file formats (no ffmpeg merge needed).
+        # YouTube format 22 = 720p mp4 (combined), format 18 = 360p mp4 (combined).
+        # Fallback chain: best combined mp4 → best combined webm → absolute best.
+        "format": (
+            "best[ext=mp4][vcodec!='none'][acodec!='none']"
+            "/best[ext=webm][vcodec!='none'][acodec!='none']"
+            "/best[vcodec!='none'][acodec!='none']"
+            "/best"
+        ),
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
-        # Do NOT require merge/ffmpeg; prefer native mp4
-        "merge_output_format": None,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
