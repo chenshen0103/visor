@@ -37,6 +37,7 @@ def app_with_mocks():
                 confidence=0.92,
                 hr_bpm=72.0,
                 pearson_sync=0.88,
+                face_neck_sync=0.75,
                 snr_db=5.2,
                 status="real",
                 explanation="Stub verdict.",
@@ -183,7 +184,7 @@ async def test_photo_real(client):
     )
     assert r.status_code == 200
     data = r.json()
-    assert data["status"] in ("real", "fake", "uncertain")
+    assert data["status"] in ("real", "fake", "face_swap", "uncertain")
     assert "geometry_score" in data
     assert "prnu_score" in data
 

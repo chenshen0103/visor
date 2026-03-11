@@ -50,6 +50,7 @@ STATUS_EMOJI = {
     "suspicious":"⚠️",
     "real":      "✅",
     "fake":      "🚨",
+    "face_swap": "🎭",
     "uncertain": "⚠️",
 }
 
@@ -241,7 +242,8 @@ def _run_video_analysis(video_path: str) -> tuple[str, str]:
 |------|------|
 | **可信度** | {v.confidence:.1%} |
 | **估計心率** | {v.hr_bpm:.1f} BPM |
-| **跨區域同步 (Pearson r)** | {v.pearson_sync:.3f} |
+| **臉內同步 (Pearson r)** | {v.pearson_sync:.3f} |
+| **臉-頸跨界同步** | {v.face_neck_sync:.3f} |
 | **信噪比 (SNR)** | {v.snr_db:.1f} dB |
 | **處理時間** | {v.processing_time_ms:.0f} ms |
 

@@ -1,14 +1,22 @@
 """
 ROIExtractor — uses OpenCV Haar cascade to locate face, then derives
-forehead and cheek ROIs from the bounding box for rPPG signal extraction.
+forehead, cheek, and neck ROIs from the bounding box for rPPG signal
+extraction.
 
-Improvements over the original:
-- EMA (exponential moving average) smoothing of the face bounding box
-  to reduce jitter between frames.
-- When face is lost mid-video, falls back to the last known bbox rather
-  than a fixed centre-of-frame region, so the ROI stays consistent.
-- extract_rgb_series() now also returns the actual video FPS read from
-  the capture device (instead of relying on a hardcoded config value).
+Regions extracted
+-----------------
+- forehead    : top ~10% of face box                    (inside face)
+- left_cheek  : left quarter at ~55% face height        (inside face)
+- right_cheek : right quarter at ~55% face height       (inside face)
+- neck        : centred below face, ~30% face height gap (outside face)
+
+The neck ROI is the key signal for face-swap detection:
+  Real video    → face rPPG ≈ neck rPPG  (same cardiac cycle)
+  Face-swap     → face rPPG ≠ neck rPPG  (face synthesised, neck real)
+
+EMA smoothing (alpha=0.25) is applied to the face bbox to reduce
+frame-to-frame jitter.  If detection fails, the last known bbox is
+reused so all regions stay temporally aligned.
 """
 
 from __future__ import annotations
@@ -37,12 +45,17 @@ _face_cascade = cv2.CascadeClassifier(_CASCADE_PATH)
 if _face_cascade.empty():
     logger.error("Failed to load Haar cascade from %s", _CASCADE_PATH)
 
+# Neck ROI size (pixels)
+_NECK_H = 25
+_NECK_W = 50
+
 
 @dataclass
 class ROIPatches:
-    forehead: np.ndarray       # (H, W, 3) BGR
-    left_cheek: np.ndarray     # (H, W, 3) BGR
-    right_cheek: np.ndarray    # (H, W, 3) BGR
+    forehead: np.ndarray       # (H, W, 3) BGR — inside face
+    left_cheek: np.ndarray     # (H, W, 3) BGR — inside face
+    right_cheek: np.ndarray    # (H, W, 3) BGR — inside face
+    neck: np.ndarray           # (H, W, 3) BGR — outside face (below chin)
 
 
 def _crop_patch(
@@ -69,34 +82,29 @@ class ROIExtractor:
     """
     Face ROI extractor using OpenCV Haar cascade with EMA bbox smoothing.
 
-    Derives three regions from the smoothed face bounding box:
-    - forehead   : top ~10% of face box (centred horizontally)
-    - left_cheek : left quarter at ~55% face height
-    - right_cheek: right quarter at ~55% face height
-
     Tracking strategy:
     - When a face is detected: update EMA bbox.
     - When no face is detected but a previous bbox exists: reuse last known
-      position (the subject is still in frame; detection just failed).
+      position (subject still in frame, detection just failed).
     - Only fall back to a fixed centre-frame region if NO face has ever been
-      seen in this clip (first few frames with no detection).
+      seen in this clip.
     """
 
-    # EMA smoothing factor (0 = no update, 1 = no smoothing)
-    _EMA_ALPHA = 0.25
+    _EMA_ALPHA = 0.25  # EMA smoothing factor
 
     def __init__(self, max_num_faces: int = 1, refine_landmarks: bool = False) -> None:
         self._half_fh = ROI_FOREHEAD_H // 2
         self._half_fw = ROI_FOREHEAD_W // 2
         self._half_ch = ROI_CHEEK_H // 2
         self._half_cw = ROI_CHEEK_W // 2
-        # EMA state: float array [x, y, w, h] or None before first detection
+        self._half_nh = _NECK_H // 2
+        self._half_nw = _NECK_W // 2
         self._ema_bbox: Optional[np.ndarray] = None
 
     def extract(self, frame: np.ndarray) -> Optional[ROIPatches]:
         """
         Detect face in *frame* (BGR uint8), update EMA bbox, and return
-        three ROI patches.
+        four ROI patches (forehead, left_cheek, right_cheek, neck).
         Returns None only if frame is invalid.
         """
         if frame is None or frame.size == 0:
@@ -114,7 +122,6 @@ class ROIExtractor:
         )
 
         if len(faces) > 0:
-            # Pick the largest detected face
             best = max(faces, key=lambda r: r[2] * r[3]).astype(float)
             if self._ema_bbox is None:
                 self._ema_bbox = best
@@ -124,11 +131,9 @@ class ROIExtractor:
                     + self._EMA_ALPHA * best
                 )
 
-        # Determine working bbox
         if self._ema_bbox is not None:
             fx, fy, fw, fh = self._ema_bbox.astype(int)
         else:
-            # True fallback: no face ever detected — use centre of frame
             fx, fy, fw, fh = w // 4, h // 8, w // 2, int(h * 0.7)
 
         # Clamp to frame
@@ -137,30 +142,26 @@ class ROIExtractor:
         fw = max(1, min(fw, w - fx))
         fh = max(1, min(fh, h - fy))
 
-        # Forehead: top 10% of face box, centred
-        fh_cy = fy + int(fh * 0.10)
-        fh_cx = fx + fw // 2
+        # Inside-face ROIs
+        forehead    = _crop_patch(frame, fx + fw // 2,      fy + int(fh * 0.10), self._half_fh, self._half_fw)
+        left_cheek  = _crop_patch(frame, fx + fw // 4,      fy + int(fh * 0.55), self._half_ch, self._half_cw)
+        right_cheek = _crop_patch(frame, fx + int(fw * 0.75), fy + int(fh * 0.55), self._half_ch, self._half_cw)
 
-        # Left cheek: left quarter at 55% face height
-        lc_cx = fx + fw // 4
-        lc_cy = fy + int(fh * 0.55)
-
-        # Right cheek: right quarter at 55% face height
-        rc_cx = fx + int(fw * 0.75)
-        rc_cy = fy + int(fh * 0.55)
-
-        forehead    = _crop_patch(frame, fh_cx, fh_cy, self._half_fh, self._half_fw)
-        left_cheek  = _crop_patch(frame, lc_cx, lc_cy, self._half_ch, self._half_cw)
-        right_cheek = _crop_patch(frame, rc_cx, rc_cy, self._half_ch, self._half_cw)
+        # Neck ROI: centred below the face bbox, with a ~30% face-height gap
+        # to avoid the chin which may still be blended in face-swap pipelines.
+        neck_cx = fx + fw // 2
+        neck_cy = fy + fh + int(fh * 0.30) + self._half_nh
+        neck    = _crop_patch(frame, neck_cx, neck_cy, self._half_nh, self._half_nw)
 
         return ROIPatches(
             forehead=forehead,
             left_cheek=left_cheek,
             right_cheek=right_cheek,
+            neck=neck,
         )
 
     def close(self) -> None:
-        pass  # No resources to release
+        pass
 
     def __enter__(self) -> "ROIExtractor":
         return self
@@ -179,27 +180,24 @@ def extract_rgb_series(
 
     Returns
     -------
-    (series_dict, fps) where series_dict has keys 'forehead',
-    'left_cheek', 'right_cheek', each a float32 array of shape (T, 3).
+    (series_dict, fps)
+      series_dict keys: 'forehead', 'left_cheek', 'right_cheek', 'neck'
+      each a float32 array of shape (T, 3).
     Returns None on failure.
-
-    Note: frames are **not** skipped on Haar-cascade failure; instead the
-    EMA-smoothed previous bbox is reused, keeping the series temporally
-    aligned.
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         logger.error("Cannot open video: %s", video_path)
         return None
 
-    # Read actual FPS from the container (important for correct bandpass
-    # filter cut-offs and FFT frequency bins).
     actual_fps = cap.get(cv2.CAP_PROP_FPS)
     if actual_fps <= 0:
         actual_fps = 30.0
         logger.warning("Could not read FPS from %s; defaulting to 30", video_path)
 
-    series: Dict[str, list] = {"forehead": [], "left_cheek": [], "right_cheek": []}
+    series: Dict[str, list] = {
+        "forehead": [], "left_cheek": [], "right_cheek": [], "neck": []
+    }
     frames_read = 0
 
     with ROIExtractor() as extractor:
@@ -210,12 +208,12 @@ def extract_rgb_series(
             patches = extractor.extract(frame)
             if patches is not None:
                 for key, patch in [
-                    ("forehead", patches.forehead),
-                    ("left_cheek", patches.left_cheek),
+                    ("forehead",    patches.forehead),
+                    ("left_cheek",  patches.left_cheek),
                     ("right_cheek", patches.right_cheek),
+                    ("neck",        patches.neck),
                 ]:
-                    mean_rgb = patch.mean(axis=(0, 1)).astype(np.float32)  # (3,)
-                    series[key].append(mean_rgb)
+                    series[key].append(patch.mean(axis=(0, 1)).astype(np.float32))
             frames_read += 1
 
     cap.release()

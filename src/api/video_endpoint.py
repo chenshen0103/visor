@@ -64,5 +64,6 @@ async def analyze_video(
         processing_time_ms=verdict.processing_time_ms,
         hr_bpm=verdict.hr_bpm,
         pearson_sync=verdict.pearson_sync,
+        face_neck_sync=verdict.face_neck_sync,
         snr_db=verdict.snr_db,
     )

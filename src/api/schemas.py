@@ -26,11 +26,14 @@ class BaseAnalysisResponse(BaseModel):
 
 class VideoAnalysisResponse(BaseAnalysisResponse):
     """
-    status: "real" | "fake" | "uncertain"
+    status: "real" | "fake" | "face_swap" | "uncertain"
     """
     hr_bpm: float = Field(..., description="Estimated heart rate in BPM")
     pearson_sync: float = Field(
-        ..., description="Cross-region Pearson correlation (physiological sync)"
+        ..., description="Within-face Pearson sync (forehead ↔ cheeks)"
+    )
+    face_neck_sync: float = Field(
+        0.0, description="Cross-boundary Pearson sync (face ↔ neck); low on face-swaps"
     )
     snr_db: float = Field(..., description="rPPG signal-to-noise ratio in dB")
 
