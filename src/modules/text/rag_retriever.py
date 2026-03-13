@@ -98,9 +98,9 @@ class RAGRetriever:
             logger.error("Failed to load FAISS index: %s", exc)
             return False
 
-    def retrieve(self, query: str, top_k: int = RAG_TOP_K) -> List[Chunk]:
+    def retrieve(self, query: str, top_k: int = RAG_TOP_K) -> List[tuple[Chunk, float]]:
         """
-        Return the *top_k* most similar chunks to *query*.
+        Return the *top_k* most similar chunks to *query* with their scores.
 
         Falls back to empty list if index is unavailable.
         """
@@ -112,25 +112,27 @@ class RAGRetriever:
         if k == 0:
             return []
 
-        _, indices = self._index.search(vec, k)
+        # distances is (1, k), indices is (1, k)
+        distances, indices = self._index.search(vec, k)
+        
         results = []
-        for idx in indices[0]:
+        for dist, idx in zip(distances[0], indices[0]):
             if 0 <= idx < len(self._chunks):
-                results.append(self._chunks[idx])
+                results.append((self._chunks[idx], float(dist)))
         return results
 
     def fact_check(self, message: str) -> RAGResult:
         """
-        Check *message* against the knowledge base.
+        Check *message* against the knowledge base using weighted similarity.
 
         Returns
         -------
         RAGResult with:
-        - matches_known_scam  : True if ≥ 60% of top-k chunks are scam examples
+        - matches_known_scam  : True if weighted scam score >= 0.6
         - contradicts_official: True if any retrieved chunk is an official warning
-          and contradicts typical safe patterns
+          with similarity >= 0.7
         - evidence            : retrieved chunks
-        - confidence          : scam_chunk_ratio
+        - confidence          : normalized scam score
         """
         if self._index is None:
             return RAGResult(
@@ -141,9 +143,9 @@ class RAGRetriever:
                 confidence=0.0,
             )
 
-        chunks = self.retrieve(message)
+        scored_chunks = self.retrieve(message)
 
-        if not chunks:
+        if not scored_chunks:
             return RAGResult(
                 matches_known_scam=False,
                 contradicts_official=False,
@@ -152,21 +154,50 @@ class RAGRetriever:
                 confidence=0.0,
             )
 
-        # Only direct scam examples count as positive evidence.
-        # official_warning chunks describe scam *patterns* for education — they
-        # raise the contradicts_official flag but do NOT inflate scam_ratio,
-        # which prevents safe text from being falsely classified as scam.
-        # safe_example chunks actively lower the effective ratio.
-        scam_count = sum(1 for c in chunks if c.label == "scam_example")
-        safe_count = sum(1 for c in chunks if c.label == "safe_example")
-        scam_ratio = max(0.0, (scam_count - safe_count)) / len(chunks)
+        # 1. Check for exact or near-exact match to official warning
+        # If the query IS the warning, it's safe.
+        best_chunk, best_score = scored_chunks[0]
+        if best_chunk.label == "official_warning" and best_score > 0.95:
+            return RAGResult(
+                matches_known_scam=False,
+                contradicts_official=True,
+                evidence=[c for c, s in scored_chunks],
+                scam_chunk_ratio=0.0,
+                confidence=1.0,  # Highly confident it's safe (official)
+            )
 
-        has_official_warning = any(c.label == "official_warning" for c in chunks)
+        # 2. Weighted scoring
+        # Weights: scam_example=1.0, official_warning=0.4, safe_example=-1.0
+        # official_warning is lower weight because it's a "description" of a scam,
+        # which might share keywords but not intent.
+        total_weight = 0.0
+        scam_weighted_sum = 0.0
+        
+        for chunk, score in scored_chunks:
+            # We only care about positive similarities for the ratio
+            sim = max(0.0, score)
+            if chunk.label == "scam_example":
+                scam_weighted_sum += 1.0 * sim
+            elif chunk.label == "official_warning":
+                scam_weighted_sum += 0.4 * sim
+            elif chunk.label == "safe_example":
+                scam_weighted_sum -= 1.0 * sim
+            
+            total_weight += sim
+
+        scam_ratio = scam_weighted_sum / (total_weight + 1e-8)
+        scam_ratio = float(np.clip(scam_ratio, 0.0, 1.0))
+
+        # official_warning flag (used for UI warnings)
+        has_strong_official = any(
+            c.label == "official_warning" and s > 0.7 
+            for c, s in scored_chunks
+        )
 
         return RAGResult(
             matches_known_scam=scam_ratio >= 0.6,
-            contradicts_official=has_official_warning,
-            evidence=chunks,
+            contradicts_official=has_strong_official,
+            evidence=[c for c, s in scored_chunks],
             scam_chunk_ratio=scam_ratio,
             confidence=scam_ratio,
         )

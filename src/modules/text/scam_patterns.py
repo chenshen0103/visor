@@ -108,6 +108,87 @@ SCAM_ARCHETYPES: List[ScamArchetype] = [
             "您訂購的商品已到達，請支付補充運費，否則將退回給寄件人",
         ],
     ),
+    ScamArchetype(
+        key="guess_who_i_am",
+        name_en="Guess Who I Am (Friend/Relative Impersonation)",
+        name_zh="猜猜我是誰（冒充親友）",
+        description=(
+            "Fraudster calls or messages pretending to be a friend or relative who "
+            "has changed their number. They build rapport before asking for urgent "
+            "financial help due to an emergency or business trouble."
+        ),
+        exemplars=[
+            "猜猜我是誰？我是你大學同學啦，我換電話了，先存一下",
+            "大舅你聽得出來我是誰嗎？我最近急需用錢，能不能先借我10萬",
+            "Hi, it's me, your old friend. I lost my phone and this is my new number.",
+            "I'm in a bit of a jam and need some quick cash, can you help me out?",
+            "我是你侄子，我現在人在醫院急需繳費，能不能先匯款給我",
+            "好久不見！我換LINE了，這是我的新帳號，有空出來吃飯嗎",
+            "Can you wire me some money? I'm stranded and my wallet was stolen.",
+            "阿姨是我啦，我最近在創業需要週轉，能不能借我一點錢",
+        ],
+    ),
+    ScamArchetype(
+        key="atm_deduction_fraud",
+        name_en="ATM / Deduction Error Fraud",
+        name_zh="解除分期付款詐騙",
+        description=(
+            "Fraudster poses as e-commerce or bank staff claiming a system error "
+            "caused an incorrect recurring charge or membership upgrade. They "
+            "instruct the victim to go to an ATM or use net banking to 'cancel' it."
+        ),
+        exemplars=[
+            "您好，我是博客來客服，因系統設定錯誤，您的訂單被重複扣款",
+            "您的訂單被誤設為批發商，請至ATM操作解除分期付款設定",
+            "There was an error with your subscription, please follow these steps to refund",
+            "Your payment was processed twice, go to an ATM to reverse the transaction",
+            "我是網路賣場客服，因工作人員失誤將您設為VIP，需操作網銀解除",
+            "您的信用卡將被自動扣款12期，請配合客服人員取消此筆交易",
+            "System error: your account will be charged monthly, call this number to cancel",
+            "因訂單系統異常，請您到最近的ATM依照指示解除設定",
+        ],
+    ),
+    ScamArchetype(
+        key="job_scam",
+        name_en="Job / Employment Scam",
+        name_zh="求職／家庭代工詐騙",
+        description=(
+            "Promises of high-paying, low-effort jobs or work-from-home "
+            "opportunities. Victims are asked to pay 'setup fees', provide bank "
+            "account details for 'payroll' (which are used for money laundering), "
+            "or complete tasks on fake platforms."
+        ),
+        exemplars=[
+            "在家工作，每日只需1小時，月入5萬不是夢，意者加LINE",
+            "誠徵打字員、點讚員，每單佣金300元，現結不拖欠",
+            "Work from home and earn $500 a day, no experience required",
+            "High paying part-time job, just need your bank account to receive payments",
+            "急徵家庭代工，需先繳納材料保證金2000元，完工後退還",
+            "電商平台刷單員，幫賣場刷好評即可獲得高額提成",
+            "Easy money: process payments for our international clients from home",
+            "招聘線上客服，只需手機即可操作，薪資優渥環境自由",
+        ],
+    ),
+    ScamArchetype(
+        key="phishing_link_fraud",
+        name_en="Phishing / Identity Theft",
+        name_zh="釣魚連結／個資盜取",
+        description=(
+            "SMS or emails containing fake links to banks, government portals, or "
+            "logistics companies. Victims are lulled into entering credentials, "
+            "credit card numbers, or OTPs on a fraudulent website."
+        ),
+        exemplars=[
+            "您的網銀帳戶異常，請立即登入更新資料，否則將永久凍結",
+            "【國稅局通知】您有一筆退稅尚未領取，請點擊連結填寫匯款帳號",
+            "Your bank account security is compromised, click here to verify identity",
+            "You have an unclaimed reward, login now to claim your $500 gift card",
+            "您的電費已逾期，請立即點擊連結繳費，以免造成斷電",
+            "【蝦皮購物】您的帳號異地登入，若非本人請點此登入修改密碼",
+            "Verify your Netflix account info to avoid service interruption",
+            "您的交通罰單未繳納，請點擊連結查詢詳細內容並完成繳費",
+        ],
+    ),
 ]
 
 # Build a quick lookup dict

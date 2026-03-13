@@ -15,8 +15,8 @@ from modules.text.scam_patterns import SCAM_ARCHETYPES, ARCHETYPE_BY_KEY
 # ---------------------------------------------------------------------------
 
 class TestScamPatterns:
-    def test_four_archetypes_defined(self):
-        assert len(SCAM_ARCHETYPES) == 4
+    def test_eight_archetypes_defined(self):
+        assert len(SCAM_ARCHETYPES) == 8
 
     def test_required_keys_present(self):
         expected_keys = {
@@ -24,6 +24,10 @@ class TestScamPatterns:
             "romance_fraud",
             "government_impersonation",
             "parcel_fraud",
+            "guess_who_i_am",
+            "atm_deduction_fraud",
+            "job_scam",
+            "phishing_link_fraud",
         }
         actual_keys = {a.key for a in SCAM_ARCHETYPES}
         assert actual_keys == expected_keys
@@ -90,6 +94,26 @@ class TestIntentEmbedder:
         text = "您的包裹因地址不完整無法投遞，請點擊連結更新資料並支付補充運費。"
         result = embedder.compute_scam_distances(text)
         assert result.closest_archetype == "parcel_fraud"
+
+    def test_guess_who_i_am_detected(self, embedder):
+        text = "猜猜我是誰？我是你大學同學啦，我換電話了，最近急需用錢。"
+        result = embedder.compute_scam_distances(text)
+        assert result.closest_archetype == "guess_who_i_am"
+
+    def test_atm_deduction_detected(self, embedder):
+        text = "您好，我是購物平台客服，因系統設定錯誤，請至ATM解除分期付款。"
+        result = embedder.compute_scam_distances(text)
+        assert result.closest_archetype == "atm_deduction_fraud"
+
+    def test_job_scam_detected(self, embedder):
+        text = "在家工作，每日只需1小時，月入5萬不是夢，意者加LINE了解。"
+        result = embedder.compute_scam_distances(text)
+        assert result.closest_archetype == "job_scam"
+
+    def test_phishing_link_detected(self, embedder):
+        text = "您的網銀帳戶異常，請立即登入以下網址更新資料，以免帳戶被凍結。"
+        result = embedder.compute_scam_distances(text)
+        assert result.closest_archetype == "phishing_link_fraud"
 
 
 # ---------------------------------------------------------------------------

@@ -105,6 +105,12 @@ SCAM_SIMILARITY_MID = 0.55      # above this → suspicious
 # RAG retrieval
 RAG_TOP_K = 5
 
+# Explainable AI (LLM)
+# Using a very lightweight model (0.5B) for fast local inference
+EXPLAINER_MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
+EXPLAINER_DEVICE = "cuda"  # or "cpu"
+MAX_NEW_TOKENS = 150
+
 # Fusion weights for text verdict
 TEXT_INTENT_WEIGHT = 0.40
 TEXT_RAG_WEIGHT = 0.60
