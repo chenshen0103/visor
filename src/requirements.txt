@@ -21,3 +21,4 @@ pytest-asyncio==0.25.0
 gradio>=6.0.0
 PyWavelets>=1.6.0
 yt-dlp>=2024.1.0
+matplotlib>=3.9.0

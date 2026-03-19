@@ -18,6 +18,10 @@ from pathlib import Path
 
 import cv2
 import gradio as gr
+import matplotlib
+matplotlib.use("Agg")          # non-interactive backend
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import numpy as np
 from PIL import Image
 
@@ -28,6 +32,7 @@ if str(_SRC) not in sys.path:
 from modules.text.text_detector import TextDetector
 from modules.photo.photo_detector import PhotoDetector
 from modules.video.video_detector import VideoDetector
+from modules.video.timeline_analyzer import analyze_timeline, SegmentResult
 
 # ---------------------------------------------------------------------------
 # Load models once
@@ -222,9 +227,130 @@ def analyze_photo(image: np.ndarray | None) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Timeline heatmap builder
+# ---------------------------------------------------------------------------
+def _make_timeline_fig(
+    results: list[SegmentResult],
+    min_active_segs: int = 3,
+) -> plt.Figure | None:
+    """
+    Build a matplotlib heatmap: rows = persons, columns = time segments.
+    Color:  red (fake=0) → yellow (uncertain=0.5) → green (real=1).
+    Gray cells = person not visible in that segment.
+    Only persons with ≥ min_active_segs non-no_face segments are shown.
+    Returns None if results is empty.
+    """
+    if not results:
+        return None
+
+    # Filter: only persons that appear in enough segments
+    all_person_ids = sorted({r.person_id for r in results})
+    person_ids = [
+        pid for pid in all_person_ids
+        if sum(1 for r in results if r.person_id == pid and r.status != "no_face")
+        >= min_active_segs
+    ]
+    if not person_ids:
+        person_ids = all_person_ids  # fallback: show all if none pass filter
+
+    # Renumber persons by order of first appearance for cleaner labels
+    first_t = {
+        pid: min(r.t_start for r in results if r.person_id == pid)
+        for pid in person_ids
+    }
+    person_ids = sorted(person_ids, key=lambda p: first_t[p])
+    t_starts   = sorted({r.t_start   for r in results})
+    n_p, n_t   = len(person_ids), len(t_starts)
+
+    pid_idx = {p: i for i, p in enumerate(person_ids)}
+    t_idx   = {t: i for i, t in enumerate(t_starts)}
+
+    # Build probability matrix (NaN = no face)
+    data = np.full((n_p, n_t), np.nan)
+    for r in results:
+        if r.status != "no_face":
+            data[pid_idx[r.person_id], t_idx[r.t_start]] = r.real_prob
+
+    # ── per-person overall verdict (majority over non-uncertain segs) ──────
+    verdicts: list[str] = []
+    for pid in person_ids:
+        segs = [r for r in results if r.person_id == pid and r.status not in ("no_face", "uncertain")]
+        if not segs:
+            verdicts.append("⚠️ 不確定")
+            continue
+        real_frac = sum(1 for r in segs if r.status == "real") / len(segs)
+        if real_frac >= 0.5:
+            verdicts.append("✅ 真人")
+        else:
+            verdicts.append("🚨 疑似AI")
+
+    # ── figure ────────────────────────────────────────────────────────────
+    fig_w = max(8, min(20, n_t * 0.55 + 2))
+    fig_h = max(2.5, n_p * 1.4 + 1.8)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    fig.patch.set_facecolor("#1a1a2e")
+    ax.set_facecolor("#16213e")
+
+    # Custom colormap: red → yellow → green
+    cmap = mcolors.LinearSegmentedColormap.from_list(
+        "rppg", [(0.85, 0.15, 0.15), (0.95, 0.80, 0.10), (0.15, 0.75, 0.25)], N=256
+    )
+    cmap.set_bad(color="#3a3a5c")   # gray for NaN (no face)
+
+    masked = np.ma.masked_invalid(data)
+    im = ax.imshow(masked, aspect="auto", cmap=cmap, vmin=0.0, vmax=1.0,
+                   interpolation="nearest")
+
+    # Colorbar
+    cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+    cbar.set_ticks([0.0, 0.35, 0.60, 1.0])
+    cbar.set_ticklabels(["偽造", "不確定", "真實", ""])
+    cbar.ax.yaxis.set_tick_params(color="white")
+    plt.setp(cbar.ax.yaxis.get_ticklabels(), color="white", fontsize=8)
+
+    # Annotate cells with real_prob value
+    for pi in range(n_p):
+        for ti in range(n_t):
+            v = data[pi, ti]
+            if np.isfinite(v):
+                ax.text(ti, pi, f"{v:.2f}", ha="center", va="center",
+                        fontsize=6.5, color="white" if v < 0.8 else "#111",
+                        fontweight="bold")
+
+    # Y-axis: person labels with verdict
+    y_labels = [
+        f"Person {pid + 1}  {verdict}"
+        for pid, verdict in zip(person_ids, verdicts)
+    ]
+    ax.set_yticks(range(n_p))
+    ax.set_yticklabels(y_labels, color="white", fontsize=10)
+
+    # X-axis: every ~10 s
+    stride = t_starts[1] - t_starts[0] if len(t_starts) > 1 else 2.0
+    step   = max(1, round(10.0 / stride))
+    x_ticks  = list(range(0, n_t, step))
+    x_labels = [f"{t_starts[i]:.0f}s" for i in x_ticks]
+    ax.set_xticks(x_ticks)
+    ax.set_xticklabels(x_labels, color="white", fontsize=8)
+
+    ax.tick_params(axis="both", colors="white")
+    for spine in ax.spines.values():
+        spine.set_edgecolor("#555577")
+
+    ax.set_xlabel("時間", color="white", fontsize=9)
+    ax.set_title(
+        "段落級 rPPG 偵測（綠=偵測到心律・紅=未偵測・灰=無人臉）",
+        color="white", fontsize=10, pad=8,
+    )
+
+    plt.tight_layout()
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Tab 3 — Video Analysis (file upload + URL)
 # ---------------------------------------------------------------------------
-def _run_video_analysis(video_path: str) -> tuple[str, str]:
+def _run_video_analysis(video_path: str) -> tuple[str, str, plt.Figure | None]:
     """Core analysis logic — accepts a local file path (mp4 or avi)."""
     tmp_created: str | None = None
     try:
@@ -232,11 +358,28 @@ def _run_video_analysis(video_path: str) -> tuple[str, str]:
         if mp4_path != video_path:
             tmp_created = mp4_path   # remember to clean up
 
+        # ── overall verdict ────────────────────────────────────────────────
         v = _video_det.analyze(mp4_path)
-        badge = _badge(v.status)
+
+        _VIDEO_LABELS = {
+            "real":      ("✅", "偵測到生理信號（真實人臉）"),
+            "fake":      ("🚨", "未偵測到生理信號（疑似 AI 生成）"),
+            "face_swap": ("🎭", "疑似換臉（臉部與頸部信號不一致）"),
+            "uncertain": ("⚠️", "信號不足，無法判定"),
+        }
+        emoji, label = _VIDEO_LABELS.get(v.status, ("❓", v.status.upper()))
+        badge = f"{emoji} **{label}**"
+
+        disclaimer = ""
+        if v.status == "real":
+            disclaimer = (
+                "\n> ⚠️ **注意：** 本分析僅偵測影片中是否存在真實生理信號（心率/脈搏），"
+                "**不代表影片內容安全**。詐騙影片可能使用真人出鏡。"
+                "建議搭配「文字分析」功能檢測語音/字幕內容是否涉及詐騙話術。\n"
+            )
 
         summary_md = f"""
-## 分析結果 {badge}
+## 整體分析結果 {badge}
 
 | 指標 | 數值 |
 |------|------|
@@ -246,13 +389,66 @@ def _run_video_analysis(video_path: str) -> tuple[str, str]:
 | **臉-頸跨界同步** | {v.face_neck_sync:.3f} |
 | **信噪比 (SNR)** | {v.snr_db:.1f} dB |
 | **處理時間** | {v.processing_time_ms:.0f} ms |
-
+{disclaimer}
 **說明：** {v.explanation}
+
+---
+*⏳ 正在產生段落時間軸（多人追蹤），請稍候…*
 """
-        return badge, summary_md.strip()
+
+        # ── segment-level timeline (multi-person) ─────────────────────────
+        seg_results = analyze_timeline(mp4_path, segment_sec=6.0, stride_sec=2.0)
+        timeline_fig = _make_timeline_fig(seg_results)
+
+        # Update summary: only persons with ≥3 active segments
+        all_pids = sorted({r.person_id for r in seg_results}) if seg_results else []
+        person_ids = [
+            pid for pid in all_pids
+            if sum(1 for r in seg_results if r.person_id == pid and r.status != "no_face") >= 3
+        ] or all_pids  # fallback: show all if none pass
+        # sort by first appearance time
+        person_ids = sorted(
+            person_ids,
+            key=lambda p: min(r.t_start for r in seg_results if r.person_id == p),
+        )
+        if person_ids:
+            lines = []
+            for pid in person_ids:
+                segs = [r for r in seg_results
+                        if r.person_id == pid and r.status not in ("no_face", "uncertain")]
+                if not segs:
+                    lines.append(f"- **Person {pid + 1}**: ⚠️ 資料不足")
+                    continue
+                real_f = sum(1 for r in segs if r.status == "real") / len(segs)
+                fake_f = sum(1 for r in segs if r.status == "fake") / len(segs)
+                verdict = "✅ 真人" if real_f >= 0.5 else "🚨 疑似AI"
+                lines.append(
+                    f"- **Person {pid + 1}**: {verdict} "
+                    f"（真實段 {real_f:.0%} / 偽造段 {fake_f:.0%}）"
+                )
+            person_summary = "\n### 各人物判定\n" + "\n".join(lines)
+        else:
+            person_summary = "\n> ⚠️ 未偵測到人臉，無法進行段落分析。"
+
+        summary_md = f"""
+## 整體分析結果 {badge}
+
+| 指標 | 數值 |
+|------|------|
+| **可信度** | {v.confidence:.1%} |
+| **估計心率** | {v.hr_bpm:.1f} BPM |
+| **臉內同步 (Pearson r)** | {v.pearson_sync:.3f} |
+| **臉-頸跨界同步** | {v.face_neck_sync:.3f} |
+| **信噪比 (SNR)** | {v.snr_db:.1f} dB |
+| **處理時間** | {v.processing_time_ms:.0f} ms |
+{disclaimer}
+**說明：** {v.explanation}
+{person_summary}
+"""
+        return badge, summary_md.strip(), timeline_fig
 
     except Exception as exc:
-        return "❌ **ERROR**", f"分析失敗：{exc}"
+        return "❌ **ERROR**", f"分析失敗：{exc}", None
     finally:
         if tmp_created:
             try:
@@ -261,18 +457,18 @@ def _run_video_analysis(video_path: str) -> tuple[str, str]:
                 pass
 
 
-def analyze_video(video_path: str | None) -> tuple[str, str]:
+def analyze_video(video_path: str | None) -> tuple[str, str, plt.Figure | None]:
     """Called when user uploads a local file."""
     if video_path is None:
-        return "（未上傳影片）", ""
+        return "（未上傳影片）", "", None
     return _run_video_analysis(video_path)
 
 
-def analyze_video_url(url: str) -> tuple[str, str]:
+def analyze_video_url(url: str) -> tuple[str, str, plt.Figure | None]:
     """Called when user submits a URL."""
     url = (url or "").strip()
     if not url:
-        return "（未輸入 URL）", ""
+        return "（未輸入 URL）", "", None
 
     tmp_dir: str | None = None
     tmp_mp4: str | None = None
@@ -281,7 +477,7 @@ def analyze_video_url(url: str) -> tuple[str, str]:
         tmp_dir = str(Path(tmp_mp4).parent)
         return _run_video_analysis(tmp_mp4)
     except Exception as exc:
-        return "❌ **ERROR**", f"下載或分析失敗：{exc}"
+        return "❌ **ERROR**", f"下載或分析失敗：{exc}", None
     finally:
         # Clean up temp directory created by yt-dlp
         if tmp_dir and Path(tmp_dir).exists():
@@ -474,11 +670,15 @@ with gr.Blocks(title="多模態防詐防禦框架") as demo:
                     vid_file_btn = gr.Button("🔍 分析", variant="primary")
                     vid_file_badge = gr.Markdown()
                     vid_file_result = gr.Markdown()
+                    vid_file_timeline = gr.Plot(
+                        label="段落時間軸（各人物 rPPG 偵測）",
+                        visible=True,
+                    )
 
                     vid_file_btn.click(
                         analyze_video,
                         inputs=vid_input,
-                        outputs=[vid_file_badge, vid_file_result],
+                        outputs=[vid_file_badge, vid_file_result, vid_file_timeline],
                     )
 
                 with gr.TabItem("🔗 輸入網址"):
@@ -492,11 +692,15 @@ with gr.Blocks(title="多模態防詐防禦框架") as demo:
                     vid_url_btn = gr.Button("⬇️ 下載並分析", variant="primary")
                     vid_url_badge = gr.Markdown()
                     vid_url_result = gr.Markdown()
+                    vid_url_timeline = gr.Plot(
+                        label="段落時間軸（各人物 rPPG 偵測）",
+                        visible=True,
+                    )
 
                     vid_url_btn.click(
                         analyze_video_url,
                         inputs=vid_url_input,
-                        outputs=[vid_url_badge, vid_url_result],
+                        outputs=[vid_url_badge, vid_url_result, vid_url_timeline],
                     )
 
         # ---- Tab 4: Unified ----
