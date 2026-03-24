@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from api.schemas import RAGEvidenceItem, TextAnalysisResponse, TextRequest
+from api.schemas import RAGEvidenceItem, RedFlagItem, TextAnalysisResponse, TextRequest
 from modules.text.text_detector import TextDetector
 
 router = APIRouter()
@@ -25,7 +25,7 @@ async def analyze_text(
     body: TextRequest,
     detector: TextDetector = Depends(get_text_detector),
 ) -> TextAnalysisResponse:
-    verdict = detector.analyze(body.text)
+    verdict = detector.analyze(body.text, history=body.history)
 
     evidence_items = [
         RAGEvidenceItem(
@@ -38,6 +38,11 @@ async def analyze_text(
         for c in verdict.rag_evidence
     ]
 
+    red_flag_items = [
+        RedFlagItem(key=rf.key, description=rf.description, severity=rf.severity)
+        for rf in verdict.red_flags
+    ]
+
     return TextAnalysisResponse(
         status=verdict.status,
         confidence=verdict.confidence,
@@ -48,4 +53,5 @@ async def analyze_text(
         intent_similarity=verdict.intent_similarity,
         rag_scam_ratio=verdict.rag_scam_ratio,
         rag_evidence=evidence_items,
+        red_flags=red_flag_items,
     )

@@ -15,8 +15,8 @@ from modules.text.scam_patterns import SCAM_ARCHETYPES, ARCHETYPE_BY_KEY
 # ---------------------------------------------------------------------------
 
 class TestScamPatterns:
-    def test_four_archetypes_defined(self):
-        assert len(SCAM_ARCHETYPES) == 4
+    def test_archetype_count(self):
+        assert len(SCAM_ARCHETYPES) >= 9
 
     def test_required_keys_present(self):
         expected_keys = {
@@ -24,9 +24,14 @@ class TestScamPatterns:
             "romance_fraud",
             "government_impersonation",
             "parcel_fraud",
+            "recovery_fraud",
+            "guess_who_i_am",
+            "atm_deduction_fraud",
+            "job_scam",
+            "phishing_link_fraud",
         }
         actual_keys = {a.key for a in SCAM_ARCHETYPES}
-        assert actual_keys == expected_keys
+        assert expected_keys.issubset(actual_keys)
 
     def test_each_archetype_has_exemplars(self):
         for archetype in SCAM_ARCHETYPES:

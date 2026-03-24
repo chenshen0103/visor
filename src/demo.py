@@ -14,6 +14,7 @@ import argparse
 import shutil
 import sys
 import tempfile
+import traceback
 from pathlib import Path
 
 import cv2
@@ -33,6 +34,7 @@ from modules.text.text_detector import TextDetector
 from modules.photo.photo_detector import PhotoDetector
 from modules.video.video_detector import VideoDetector
 from modules.video.timeline_analyzer import analyze_timeline, SegmentResult
+from modules.video.speech_analyzer import SpeechAnalyzer
 
 # ---------------------------------------------------------------------------
 # Load models once
@@ -44,6 +46,9 @@ _text_det.load()
 _photo_det = PhotoDetector()
 
 _video_det = VideoDetector()
+
+# SpeechAnalyzer: Whisper model is lazy-loaded on first video analysis
+_speech_analyzer = SpeechAnalyzer(text_detector=_text_det)
 print("[DEMO] Models ready.")
 
 # ---------------------------------------------------------------------------
@@ -58,6 +63,74 @@ STATUS_EMOJI = {
     "face_swap": "🎭",
     "uncertain": "⚠️",
 }
+
+# Thresholds for intent matching display
+_INTENT_HIT   = 0.45   # ≥ this → 🚨 命中
+_INTENT_WARN  = 0.30   # ≥ this → ⚠️ 輕度相關
+
+
+def _sim_bar(sim: float, width: int = 10) -> str:
+    """ASCII progress bar for similarity score, e.g. ███████░░░ 72%"""
+    filled = round(sim * width)
+    return "█" * filled + "░" * (width - filled) + f" {sim:.0%}"
+
+
+def _format_intent_analysis(all_similarities: dict, title: str = "意圖比對") -> str:
+    """
+    Render a Markdown block showing how the text's intent compares against
+    all scam archetypes.  Archetypes are sorted by similarity (high→low).
+    Only archetypes above _INTENT_WARN are shown in detail; rest are listed
+    as "未命中".
+    """
+    if not all_similarities:
+        return ""
+    from modules.text.scam_patterns import ARCHETYPE_BY_KEY  # noqa: PLC0415
+
+    # Sort archetypes high → low similarity
+    sorted_items = sorted(all_similarities.items(), key=lambda x: x[1], reverse=True)
+
+    hit_lines   = []   # sim ≥ _INTENT_HIT
+    warn_lines  = []   # _INTENT_WARN ≤ sim < _INTENT_HIT
+    miss_names  = []   # sim < _INTENT_WARN
+
+    for key, sim in sorted_items:
+        arch = ARCHETYPE_BY_KEY.get(key)
+        if arch is None:
+            continue
+        bar = _sim_bar(sim)
+        if sim >= _INTENT_HIT:
+            hit_lines.append(
+                f"#### 🚨 {arch.name_zh}（{arch.name_en}）\n"
+                f"`{bar}`\n\n"
+                f"**詐騙手法說明：** {arch.description}\n\n"
+                f"**典型話術範例：**\n"
+                + "\n".join(f"> {ex}" for ex in arch.exemplars[:3])
+            )
+        elif sim >= _INTENT_WARN:
+            warn_lines.append(
+                f"#### ⚠️ {arch.name_zh}（輕度相關）\n"
+                f"`{bar}`\n\n"
+                f"{arch.description[:100]}…"
+            )
+        else:
+            miss_names.append(f"~~{arch.name_zh}~~")
+
+    parts = [f"### 🎯 {title}\n"]
+
+    if hit_lines:
+        parts.append("**命中以下詐騙意圖：**\n")
+        parts.extend(hit_lines)
+    else:
+        parts.append("> ✅ 未命中任何高風險詐騙意圖。\n")
+
+    if warn_lines:
+        parts.append("\n**輕度相關（僅供參考）：**\n")
+        parts.extend(warn_lines)
+
+    if miss_names:
+        parts.append(f"\n**未命中：** {' ／ '.join(miss_names)}")
+
+    return "\n".join(parts)
 
 
 def _badge(status: str) -> str:
@@ -107,12 +180,14 @@ def _ensure_mp4(video_path: str) -> str:
 # ---------------------------------------------------------------------------
 # Helper: download a video URL to a temp MP4 using yt-dlp
 # ---------------------------------------------------------------------------
-def _download_url(url: str) -> str:
+def _download_url(url: str, cookies_path: str | None = None) -> str:
     """
     Download *url* (YouTube / direct video / social media) to a temp MP4
     using yt-dlp (no ffmpeg required when the source is already mp4/webm).
     Returns path to the downloaded file.
     Raises RuntimeError on failure.
+
+    cookies_path: optional path to a Netscape-format cookies.txt file.
     """
     try:
         import yt_dlp  # noqa: PLC0415
@@ -122,11 +197,9 @@ def _download_url(url: str) -> str:
     tmp_dir = tempfile.mkdtemp()
     out_template = str(Path(tmp_dir) / "video.%(ext)s")
 
-    ydl_opts = {
+    base_opts = {
         "outtmpl": out_template,
         # Select only pre-muxed single-file formats (no ffmpeg merge needed).
-        # YouTube format 22 = 720p mp4 (combined), format 18 = 360p mp4 (combined).
-        # Fallback chain: best combined mp4 → best combined webm → absolute best.
         "format": (
             "best[ext=mp4][vcodec!='none'][acodec!='none']"
             "/best[ext=webm][vcodec!='none'][acodec!='none']"
@@ -138,9 +211,70 @@ def _download_url(url: str) -> str:
         "noplaylist": True,
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info)
+    _FB_DOMAINS = ("facebook.com", "fb.com", "instagram.com", "fb.watch")
+    needs_cookies = any(d in url for d in _FB_DOMAINS)
+
+    info = None
+    last_err: Exception | None = None
+
+    # 0) User-supplied cookies.txt (most reliable for FB/IG)
+    if cookies_path and Path(cookies_path).exists():
+        cookie_size = Path(cookies_path).stat().st_size
+        print(f"[DEMO] Using cookies file: {cookies_path} ({cookie_size} bytes)")
+        if cookie_size < 500:
+            print("[DEMO] WARNING: cookies.txt looks too small — may be incomplete export")
+        try:
+            with yt_dlp.YoutubeDL({**base_opts, "cookiefile": cookies_path,
+                                    "quiet": False}) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filename = ydl.prepare_filename(info)
+        except Exception as e:
+            print(f"[DEMO] cookies.txt attempt failed: {type(e).__name__}: {e}")
+            last_err = e
+
+    # 1) Try browsers — Firefox first (no DPAPI issue on Windows),
+    #    then Edge, then Chrome (Chrome 127+ may fail due to App-Bound Encryption).
+    if info is None and needs_cookies:
+        for browser in ["firefox", "edge", "chrome", "brave"]:
+            print(f"[DEMO] Trying cookies from browser: {browser}")
+            try:
+                with yt_dlp.YoutubeDL(
+                    {**base_opts, "cookiesfrombrowser": (browser, None, None, None),
+                     "quiet": False}
+                ) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    filename = ydl.prepare_filename(info)
+                print(f"[DEMO] Success with browser cookies: {browser}")
+                break
+            except Exception as e:
+                print(f"[DEMO] {browser} failed: {type(e).__name__}: {e}")
+                last_err = e
+
+    # 2) Fallback: no cookies (works for public / non-FB platforms)
+    if info is None:
+        try:
+            with yt_dlp.YoutubeDL(base_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filename = ydl.prepare_filename(info)
+        except Exception as e:
+            last_err = e
+
+    if info is None:
+        err_str = f"{type(last_err).__name__}: {last_err}" if last_err else "未知錯誤"
+        print(f"[DEMO] All download attempts failed. Last error: {err_str}")
+        hint = ""
+        if needs_cookies:
+            hint = (
+                "\n\n💡 **Facebook / Instagram 下載失敗，請擇一解法：**\n\n"
+                "**① 手動下載影片後上傳（最簡單）**\n"
+                "   用 [SnapSave](https://snapsave.app/zh-tw) 或 [SaveFrom](https://zh.savefrom.net/) 下載影片，"
+                "再切到「上傳檔案」tab 分析。\n\n"
+                "**② 重新匯出 cookies.txt（需 > 2KB）**\n"
+                "   瀏覽器安裝 Get cookies.txt LOCALLY，到 facebook.com **首頁**後匯出（非分享連結頁面）。\n\n"
+                "**③ 用 Firefox 登入 FB 後重試（不需上傳 cookies）**\n"
+                "   Firefox 不受 DPAPI 限制，yt-dlp 可直接讀取。"
+            )
+        raise RuntimeError(f"下載失敗：{err_str}{hint}")
 
     # yt-dlp may have chosen a different extension
     downloaded = Path(filename)
@@ -181,20 +315,9 @@ def analyze_text(text: str) -> tuple[str, str, str]:
 **說明：** {v.explanation}
 """
 
-    rag_md = ""
-    if v.rag_evidence:
-        rows = "\n".join(
-            f"| {c.chunk_id} | {c.label} | {c.archetype} | {c.text[:80]}… |"
-            for c in v.rag_evidence
-        )
-        rag_md = f"""
-### RAG 檢索證據（Top-{len(v.rag_evidence)}）
-
-| Chunk ID | 標籤 | 詐騙類型 | 內容摘要 |
-|----------|------|----------|----------|
-{rows}
-"""
-
+    rag_md = _format_intent_analysis(
+        v.all_similarities, title="詐騙意圖比對結果"
+    ) if v.all_similarities else ""
     return badge, summary_md.strip(), rag_md.strip()
 
 
@@ -268,6 +391,9 @@ def _make_timeline_fig(
     # Build probability matrix (NaN = no face)
     data = np.full((n_p, n_t), np.nan)
     for r in results:
+        # Skip persons not in the display set (filtered out due to <min_active_segs)
+        if r.person_id not in pid_idx or r.t_start not in t_idx:
+            continue
         if r.status != "no_face":
             data[pid_idx[r.person_id], t_idx[r.t_start]] = r.real_prob
 
@@ -354,12 +480,16 @@ def _run_video_analysis(video_path: str) -> tuple[str, str, plt.Figure | None]:
     """Core analysis logic — accepts a local file path (mp4 or avi)."""
     tmp_created: str | None = None
     try:
+        print(f"[DEMO] _run_video_analysis: {video_path}")
         mp4_path = _ensure_mp4(video_path)
         if mp4_path != video_path:
             tmp_created = mp4_path   # remember to clean up
+        print(f"[DEMO] mp4_path ready: {mp4_path}")
 
         # ── overall verdict ────────────────────────────────────────────────
+        print("[DEMO] calling video_det.analyze()...")
         v = _video_det.analyze(mp4_path)
+        print(f"[DEMO] analyze() done: status={v.status} confidence={v.confidence:.2f}")
 
         _VIDEO_LABELS = {
             "real":      ("✅", "偵測到生理信號（真實人臉）"),
@@ -397,8 +527,11 @@ def _run_video_analysis(video_path: str) -> tuple[str, str, plt.Figure | None]:
 """
 
         # ── segment-level timeline (multi-person) ─────────────────────────
+        print("[DEMO] calling analyze_timeline()...")
         seg_results = analyze_timeline(mp4_path, segment_sec=6.0, stride_sec=2.0)
+        print(f"[DEMO] analyze_timeline() done: {len(seg_results)} segments")
         timeline_fig = _make_timeline_fig(seg_results)
+        print("[DEMO] timeline figure ready")
 
         # Update summary: only persons with ≥3 active segments
         all_pids = sorted({r.person_id for r in seg_results}) if seg_results else []
@@ -430,6 +563,51 @@ def _run_video_analysis(video_path: str) -> tuple[str, str, plt.Figure | None]:
         else:
             person_summary = "\n> ⚠️ 未偵測到人臉，無法進行段落分析。"
 
+        # ── speech / content analysis ──────────────────────────────────
+        print("[DEMO] calling speech_analyzer.analyze()…")
+        sp = _speech_analyzer.analyze(mp4_path)
+        print(f"[DEMO] speech done: status={sp.scam_status} "
+              f"lang={sp.language} t={sp.processing_time_ms:.0f}ms")
+
+        _SPEECH_EMOJI = {
+            "scam":      "🚨",
+            "suspicious":"⚠️",
+            "safe":      "✅",
+            "no_audio":  "🔇",
+        }
+        sp_emoji = _SPEECH_EMOJI.get(sp.scam_status, "❓")
+
+        if sp.scam_status == "no_audio":
+            speech_md = f"\n> {sp_emoji} **語音分析：** {sp.explanation}"
+        else:
+            transcript_preview = (
+                sp.transcript[:300] + "…"
+                if len(sp.transcript) > 300 else sp.transcript
+            )
+            intent_detail = _format_intent_analysis(
+                sp.all_similarities, title="語音意圖 vs 詐騙資料庫"
+            )
+            speech_md = f"""
+---
+## {sp_emoji} 語音內容分析（詐騙風險）
+
+| 指標 | 數值 |
+|------|------|
+| **詐騙風險** | {sp.scam_status.upper()} |
+| **信心度** | {sp.scam_confidence:.1%} |
+| **偵測語言** | {sp.language} |
+| **處理時間** | {sp.processing_time_ms:.0f} ms |
+
+**風險說明：** {sp.explanation}
+
+{intent_detail}
+
+<details><summary>📝 語音轉錄文字（點擊展開）</summary>
+
+{transcript_preview}
+
+</details>"""
+
         summary_md = f"""
 ## 整體分析結果 {badge}
 
@@ -444,11 +622,14 @@ def _run_video_analysis(video_path: str) -> tuple[str, str, plt.Figure | None]:
 {disclaimer}
 **說明：** {v.explanation}
 {person_summary}
+{speech_md}
 """
         return badge, summary_md.strip(), timeline_fig
 
     except Exception as exc:
-        return "❌ **ERROR**", f"分析失敗：{exc}", None
+        tb = traceback.format_exc()
+        print(f"[DEMO] _run_video_analysis EXCEPTION:\n{tb}")
+        return "❌ **ERROR**", f"分析失敗：{type(exc).__name__}: {exc}", None
     finally:
         if tmp_created:
             try:
@@ -461,11 +642,31 @@ def analyze_video(video_path: str | None) -> tuple[str, str, plt.Figure | None]:
     """Called when user uploads a local file."""
     if video_path is None:
         return "（未上傳影片）", "", None
-    return _run_video_analysis(video_path)
+    # On Windows, Gradio's temp file may be locked by the file-serving layer.
+    # Copy it to our own temp location first to avoid PermissionError.
+    tmp_copy: str | None = None
+    try:
+        suffix = Path(video_path).suffix or ".mp4"
+        tmp_fd, tmp_copy = tempfile.mkstemp(suffix=suffix)
+        import os; os.close(tmp_fd)
+        shutil.copy2(video_path, tmp_copy)
+        return _run_video_analysis(tmp_copy)
+    except Exception as exc:
+        tb = traceback.format_exc()
+        print(f"[DEMO] analyze_video EXCEPTION:\n{tb}")
+        return "❌ **ERROR**", f"分析失敗：{type(exc).__name__}: {exc}", None
+    finally:
+        if tmp_copy:
+            try:
+                Path(tmp_copy).unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
-def analyze_video_url(url: str) -> tuple[str, str, plt.Figure | None]:
-    """Called when user submits a URL."""
+def analyze_video_url(
+    url: str, cookies_file: str | None = None
+) -> tuple[str, str, plt.Figure | None]:
+    """Called when user submits a URL (+ optional cookies.txt)."""
     url = (url or "").strip()
     if not url:
         return "（未輸入 URL）", "", None
@@ -473,19 +674,19 @@ def analyze_video_url(url: str) -> tuple[str, str, plt.Figure | None]:
     tmp_dir: str | None = None
     tmp_mp4: str | None = None
     try:
-        tmp_mp4 = _download_url(url)
+        tmp_mp4 = _download_url(url, cookies_path=cookies_file)
         tmp_dir = str(Path(tmp_mp4).parent)
         return _run_video_analysis(tmp_mp4)
     except Exception as exc:
-        return "❌ **ERROR**", f"下載或分析失敗：{exc}", None
+        tb = traceback.format_exc()
+        print(f"[DEMO] analyze_video_url EXCEPTION:\n{tb}")
+        return "❌ **ERROR**", f"分析失敗：{type(exc).__name__}: {exc}", None
     finally:
-        # Clean up temp directory created by yt-dlp
         if tmp_dir and Path(tmp_dir).exists():
             try:
                 shutil.rmtree(tmp_dir, ignore_errors=True)
             except Exception:
                 pass
-        # Clean up converted mp4 if it was placed outside tmp_dir
         if tmp_mp4 and Path(tmp_mp4).exists():
             try:
                 Path(tmp_mp4).unlink(missing_ok=True)
@@ -689,6 +890,19 @@ with gr.Blocks(title="多模態防詐防禦框架") as demo:
                         label="影片網址",
                         placeholder="https://www.youtube.com/watch?v=… 或直接 MP4 URL",
                     )
+                    with gr.Accordion("🍪 Facebook / Instagram cookies（選填）", open=False):
+                        gr.Markdown(
+                            "**Facebook / Instagram 影片需登入才能下載。**\n\n"
+                            "**方法：** 在 Chrome/Edge 安裝 "
+                            "[Get cookies.txt LOCALLY](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) 擴充功能，"
+                            "登入 Facebook 後點擴充功能 → Export → 儲存為 `cookies.txt`，上傳至下方。\n\n"
+                            "> 💡 YouTube / TikTok 公開影片**不需要**上傳 cookies。"
+                        )
+                        vid_cookies_file = gr.File(
+                            label="cookies.txt（Netscape 格式）",
+                            file_types=[".txt"],
+                            type="filepath",
+                        )
                     vid_url_btn = gr.Button("⬇️ 下載並分析", variant="primary")
                     vid_url_badge = gr.Markdown()
                     vid_url_result = gr.Markdown()
@@ -699,7 +913,7 @@ with gr.Blocks(title="多模態防詐防禦框架") as demo:
 
                     vid_url_btn.click(
                         analyze_video_url,
-                        inputs=vid_url_input,
+                        inputs=[vid_url_input, vid_cookies_file],
                         outputs=[vid_url_badge, vid_url_result, vid_url_timeline],
                     )
 

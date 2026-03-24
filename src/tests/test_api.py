@@ -61,7 +61,7 @@ def app_with_mocks():
 
     class _StubTextDetector:
         def load(self): pass
-        def analyze(self, text):
+        def analyze(self, text, history=None):
             return TextVerdict(
                 is_scam=True,
                 confidence=0.87,
@@ -69,8 +69,15 @@ def app_with_mocks():
                 closest_archetype="government_impersonation",
                 closest_archetype_zh="假冒公務機關詐騙",
                 intent_similarity=0.81,
+                all_similarities={
+                    "government_impersonation": 0.81,
+                    "investment_fraud": 0.42,
+                    "romance_fraud": 0.28,
+                    "parcel_fraud": 0.19,
+                },
                 rag_scam_ratio=0.8,
                 rag_evidence=[],
+                red_flags=[],
                 explanation="Stub: government impersonation detected.",
                 processing_time_ms=3.0,
             )

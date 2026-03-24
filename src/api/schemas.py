@@ -58,7 +58,11 @@ class PhotoAnalysisResponse(BaseAnalysisResponse):
 # ---------------------------------------------------------------------------
 
 class TextRequest(BaseModel):
-    text: str = Field(..., min_length=1, max_length=10_000, description="Text to analyse")
+    text: str = Field(..., min_length=1, max_length=10_000, description="Current message to analyse")
+    history: Optional[List[str]] = Field(
+        default=None,
+        description="Conversation history (earliest first) to provide context",
+    )
 
 
 class RAGEvidenceItem(BaseModel):
@@ -67,6 +71,12 @@ class RAGEvidenceItem(BaseModel):
     source: str
     label: str
     archetype: str
+
+
+class RedFlagItem(BaseModel):
+    key: str
+    description: str
+    severity: float
 
 
 class TextAnalysisResponse(BaseAnalysisResponse):
@@ -83,6 +93,9 @@ class TextAnalysisResponse(BaseAnalysisResponse):
     )
     rag_evidence: List[RAGEvidenceItem] = Field(
         default_factory=list, description="Retrieved anti-fraud knowledge base chunks"
+    )
+    red_flags: List[RedFlagItem] = Field(
+        default_factory=list, description="Heuristic red flags detected"
     )
 
 
