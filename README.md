@@ -165,7 +165,7 @@ graph TD
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/visor.git
+git clone https://github.com/chenshen0103/visor.git
 cd visor
 
 # Create virtual environment
