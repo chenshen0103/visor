@@ -88,11 +88,21 @@ class TextDetector:
 
         # Skip red-flag boost when the query IS an official warning (avoid FP)
         is_official_match = rag.confidence >= 0.95 and not rag.matches_known_scam
-        red_flag_boost = 0.0 if is_official_match else sum(rf.severity for rf in red_flags)
+        raw_red_flag_boost = 0.0 if is_official_match else sum(rf.severity for rf in red_flags)
 
         # 5. Score fusion
         intent_score = float(np.clip(intent.max_similarity, 0.0, 1.0))
-        rag_score = rag.scam_chunk_ratio if self._rag_available else 0.5
+        # RAG fallback = 0.0: no evidence should not contribute to scam probability
+        rag_score = rag.scam_chunk_ratio if self._rag_available else 0.0
+
+        # Attenuate red-flag boost when intent similarity is weak.
+        # Keywords like "轉帳" or "立即" appear legitimately in legal/educational content;
+        # only amplify them when the text already resembles a known scam archetype.
+        if intent_score >= SCAM_SIMILARITY_MID:
+            red_flag_boost = raw_red_flag_boost
+        else:
+            # Scale boost proportionally: near-zero intent → near-zero boost
+            red_flag_boost = raw_red_flag_boost * (intent_score / SCAM_SIMILARITY_MID)
 
         scam_prob = (
             TEXT_INTENT_WEIGHT * intent_score
@@ -102,7 +112,7 @@ class TextDetector:
         # Incorporate context score when available
         if context_intent and context_rag:
             ctx_intent_score = float(np.clip(context_intent.max_similarity, 0.0, 1.0))
-            ctx_rag_score = context_rag.scam_chunk_ratio if self._rag_available else 0.5
+            ctx_rag_score = context_rag.scam_chunk_ratio if self._rag_available else 0.0
             ctx_prob = TEXT_INTENT_WEIGHT * ctx_intent_score + TEXT_RAG_WEIGHT * ctx_rag_score
             scam_prob = max(scam_prob, ctx_prob)
             # If context matched a stronger archetype, surface it
