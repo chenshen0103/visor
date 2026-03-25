@@ -519,20 +519,7 @@ def _run_video_analysis(video_path: str) -> tuple[str, str, plt.Figure | None]:
                 "建議搭配「文字分析」功能檢測語音/字幕內容是否涉及詐騙話術。\n"
             )
 
-        summary_md = f"""
-| 指標 | 數值 |
-|------|------|
-| **估計心率** | {v.hr_bpm:.1f} BPM |
-| **臉內同步 (Pearson r)** | {v.pearson_sync:.3f} |
-| **臉-頸跨界同步** | {v.face_neck_sync:.3f} |
-| **信噪比 (SNR)** | {v.snr_db:.1f} dB |
-| **處理時間** | {v.processing_time_ms:.0f} ms |
-{disclaimer}
-**說明：** {v.explanation}
-
----
-*⏳ 正在產生段落時間軸（多人追蹤），請稍候…*
-"""
+        summary_md = "*⏳ 正在產生段落時間軸（多人追蹤），請稍候…*"
 
         # ── segment-level timeline (multi-person) ─────────────────────────
         print("[DEMO] calling analyze_timeline()...")
@@ -616,17 +603,16 @@ def _run_video_analysis(video_path: str) -> tuple[str, str, plt.Figure | None]:
 
 </details>"""
 
-        summary_md = f"""
-## 整體分析結果 {badge}
+        heartbeat_ok = v.snr_db >= 3.0 and 40 <= v.hr_bpm <= 180
+        hb_icon  = "✅" if heartbeat_ok else "❌"
+        sync_ok  = v.face_neck_sync >= 0.35 if v.face_neck_sync != 0.0 else None
+        sync_icon = ("✅" if sync_ok else "❌") if sync_ok is not None else "—"
 
-| 指標 | 數值 |
-|------|------|
-| **可信度** | {v.confidence:.1%} |
-| **估計心率** | {v.hr_bpm:.1f} BPM |
-| **臉內同步 (Pearson r)** | {v.pearson_sync:.3f} |
-| **臉-頸跨界同步** | {v.face_neck_sync:.3f} |
-| **信噪比 (SNR)** | {v.snr_db:.1f} dB |
-| **處理時間** | {v.processing_time_ms:.0f} ms |
+        summary_md = f"""
+| 檢測項目 | 結果 |
+|---------|------|
+| **可信心跳偵測** | {hb_icon} {"偵測到（{:.0f} BPM）".format(v.hr_bpm) if heartbeat_ok else "未偵測到可信心跳"} |
+| **臉頸生理同步** | {sync_icon} {"同步一致（r={:.2f}）".format(v.face_neck_sync) if sync_ok else ("不一致，疑似換臉或生成（r={:.2f}）".format(v.face_neck_sync) if sync_ok is not None else "頸部 ROI 不足，無法比對")} |
 {disclaimer}
 **說明：** {v.explanation}
 {person_summary}
