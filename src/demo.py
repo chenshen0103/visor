@@ -133,8 +133,26 @@ def _format_intent_analysis(all_similarities: dict, title: str = "意圖比對")
     return "\n".join(parts)
 
 
-def _badge(status: str) -> str:
-    return f"{STATUS_EMOJI.get(status, '❓')} **{status.upper()}**"
+_BADGE_STYLE = {
+    "scam":      ("🚨", "SCAM",       "#7f1d1d", "#fca5a5"),
+    "safe":      ("✅", "SAFE",       "#14532d", "#86efac"),
+    "suspicious":("⚠️", "SUSPICIOUS", "#713f12", "#fde68a"),
+    "real":      ("✅", "REAL",       "#14532d", "#86efac"),
+    "fake":      ("🚨", "FAKE",       "#7f1d1d", "#fca5a5"),
+    "face_swap": ("🎭", "FACE SWAP",  "#4c1d95", "#c4b5fd"),
+    "uncertain": ("⚠️", "UNCERTAIN",  "#713f12", "#fde68a"),
+}
+
+def _badge(status: str, confidence: float | None = None) -> str:
+    emoji, label, fg, bg = _BADGE_STYLE.get(status, ("❓", status.upper(), "#374151", "#e5e7eb"))
+    conf_line = f"<div style='font-size:1em;margin-top:6px;opacity:0.85'>可信度 {confidence:.1%}</div>" if confidence is not None else ""
+    return (
+        f'<div style="background:{bg};color:{fg};border:2px solid {fg};border-radius:12px;'
+        f'padding:20px 28px;text-align:center;margin-bottom:12px">'
+        f'<div style="font-size:2.2em;font-weight:900;letter-spacing:2px">{emoji} {label}</div>'
+        f'{conf_line}'
+        f'</div>'
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -298,15 +316,11 @@ def analyze_text(text: str) -> tuple[str, str, str]:
         return "（未輸入文字）", "", ""
 
     v = _text_det.analyze(text.strip())
-    badge = _badge(v.status)
-    confidence_pct = f"{v.confidence:.1%}"
+    badge = _badge(v.status, v.confidence)
 
     summary_md = f"""
-## 分析結果 {badge}
-
 | 指標 | 數值 |
 |------|------|
-| **可信度** | {confidence_pct} |
 | **最接近詐騙類型** | {v.closest_archetype_zh} ({v.closest_archetype}) |
 | **意圖相似度** | {v.intent_similarity:.3f} |
 | **RAG 詐騙比例** | {v.rag_scam_ratio:.1%} |
@@ -331,14 +345,11 @@ def analyze_photo(image: np.ndarray | None) -> tuple[str, str]:
     # Gradio returns RGB numpy array; convert to BGR for OpenCV
     img_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
     v = _photo_det.analyze_array(img_bgr)
-    badge = _badge(v.status)
+    badge = _badge(v.status, v.confidence)
 
     summary_md = f"""
-## 分析結果 {badge}
-
 | 指標 | 數值 |
 |------|------|
-| **可信度** | {v.confidence:.1%} |
 | **鏡頭幾何分數** | {v.geometry_score:.3f} |
 | **PRNU 感測器分數** | {v.prnu_score:.3f} |
 | **週期性插值偽影** | {"是 ⚠️" if v.has_periodic_artifacts else "否 ✅"} |
@@ -492,13 +503,13 @@ def _run_video_analysis(video_path: str) -> tuple[str, str, plt.Figure | None]:
         print(f"[DEMO] analyze() done: status={v.status} confidence={v.confidence:.2f}")
 
         _VIDEO_LABELS = {
-            "real":      ("✅", "偵測到生理信號（真實人臉）"),
-            "fake":      ("🚨", "未偵測到生理信號（疑似 AI 生成）"),
-            "face_swap": ("🎭", "疑似換臉（臉部與頸部信號不一致）"),
-            "uncertain": ("⚠️", "信號不足，無法判定"),
+            "real":      "偵測到生理信號（真實人臉）",
+            "fake":      "未偵測到生理信號（疑似 AI 生成）",
+            "face_swap": "疑似換臉（臉部與頸部信號不一致）",
+            "uncertain": "信號不足，無法判定",
         }
-        emoji, label = _VIDEO_LABELS.get(v.status, ("❓", v.status.upper()))
-        badge = f"{emoji} **{label}**"
+        video_label = _VIDEO_LABELS.get(v.status, v.status.upper())
+        badge = _badge(v.status, v.confidence) + f"\n\n**{video_label}**"
 
         disclaimer = ""
         if v.status == "real":
@@ -509,11 +520,8 @@ def _run_video_analysis(video_path: str) -> tuple[str, str, plt.Figure | None]:
             )
 
         summary_md = f"""
-## 整體分析結果 {badge}
-
 | 指標 | 數值 |
 |------|------|
-| **可信度** | {v.confidence:.1%} |
 | **估計心率** | {v.hr_bpm:.1f} BPM |
 | **臉內同步 (Pearson r)** | {v.pearson_sync:.3f} |
 | **臉-頸跨界同步** | {v.face_neck_sync:.3f} |
