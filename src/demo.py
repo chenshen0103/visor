@@ -693,15 +693,15 @@ def analyze_video_url(
 # ---------------------------------------------------------------------------
 _DEMO_SAMPLES = [
     # (label, text, group)
-    # Whistleblowers — policy / statistics / court ruling — no script language
-    ("Whistleblower A\n(psychological analysis)",
-     "詐騙集團慣用時間壓力與恐懼感使受害者無法冷靜，這是社會工程攻擊的核心手法。",
+    # Whistleblowers — natural short-video lawyer tone, no fraud script keywords
+    ("Whistleblower A\n(lawyer, case experience)",
+     "這種案件我一個月至少接到五件，受害者年齡層越來越廣，不只老人，年輕人一樣會被騙。",
      "lawyer"),
-    ("Whistleblower B\n(court verdict)",
-     "臺灣高等法院裁定，本案被告以假冒警察名義詐取被害人存款，判處有期徒刑三年六個月。",
+    ("Whistleblower B\n(lawyer, victim support)",
+     "很多人被騙之後覺得自己很蠢，其實詐騙手法非常精密，不要怪自己，趕快報案保留證據才是重點。",
      "lawyer"),
-    ("Whistleblower C\n(crime statistics)",
-     "根據2024年警政署統計，假冒公務機關詐騙案件達3.2萬件，全年損失逾60億元，為各類詐騙之冠。",
+    ("Whistleblower C\n(lawyer, action advice)",
+     "收到這種電話，你第一個動作不是配合，是掛斷，然後打給你認識的人確認，不要一個人做決定。",
      "lawyer"),
     # Scammers — first-person, explicit target, urgency + threat + action demand
     ("Scammer A\n(friend impersonation)",
