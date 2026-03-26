@@ -716,62 +716,132 @@ _DEMO_SAMPLES = [
 ]
 
 
-def run_embedding_demo() -> tuple[plt.Figure, str]:
-    """Compute intent similarities for lawyer vs scammer samples and return chart + table."""
-    embedder = _text_det._embedder
-    LAWYER_COLOR  = "#4A90D9"
-    SCAMMER_COLOR = "#E74C3C"
+def run_embedding_demo() -> tuple[plt.Figure, plt.Figure, str]:
+    """Compute intent similarities and return bar chart + PCA space plot + table."""
+    from sklearn.decomposition import PCA
+    from matplotlib.patches import Ellipse
+    import matplotlib.patches as mpatches
 
-    labels, sims, colors, archetypes = [], [], [], []
-    rows = []
+    embedder = _text_det._embedder
+    LAWYER_COLOR   = "#4A90D9"
+    SCAMMER_COLOR  = "#E74C3C"
+    ARCHETYPE_COLOR = "#888899"
+    BG = "#0F1117"
+    AX_BG = "#1A1D27"
+
+    # ── collect embeddings ────────────────────────────────────────────────
+    labels, vecs, sims, colors, archetypes, rows = [], [], [], [], [], []
     for label, text, group in _DEMO_SAMPLES:
-        r = embedder.compute_scam_distances(text)
+        r   = embedder.compute_scam_distances(text)
+        vec = embedder.embed(text)
         labels.append(label)
+        vecs.append(vec)
         sims.append(r.max_similarity)
         colors.append(LAWYER_COLOR if group == "lawyer" else SCAMMER_COLOR)
         archetypes.append(r.closest_name_en)
         verdict = ("🚨 High-risk" if r.max_similarity >= 0.75
                    else "⚠️ Suspicious" if r.max_similarity >= 0.55
                    else "✅ Safe")
-        rows.append(f"| **{label.replace(chr(10), ' ')}** | {r.max_similarity:.3f} | {r.closest_name_en} | {verdict} |")
+        rows.append(
+            f"| **{label.replace(chr(10), ' ')}** "
+            f"| {r.max_similarity:.3f} | {r.closest_name_en} | {verdict} |"
+        )
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    fig.patch.set_facecolor("#0F1117")
-    ax.set_facecolor("#1A1D27")
+    # archetype centroids
+    arch_keys   = list(embedder._centroids.keys())
+    arch_vecs   = [embedder._centroids[k] for k in arch_keys]
+    arch_labels = [k.replace("_", " ").title() for k in arch_keys]
 
+    all_vecs   = np.stack(vecs + arch_vecs)          # (6+9, 384)
+    all_labels = labels + arch_labels
+    all_colors = colors + [ARCHETYPE_COLOR] * len(arch_keys)
+
+    # ── PCA 384 → 2 ───────────────────────────────────────────────────────
+    pca  = PCA(n_components=2, random_state=42)
+    pts  = pca.fit_transform(all_vecs)               # (15, 2)
+    ev   = pca.explained_variance_ratio_
+
+    sample_pts   = pts[:6]
+    arch_pts     = pts[6:]
+
+    # ── Figure 1: bar chart ───────────────────────────────────────────────
+    fig_bar, ax = plt.subplots(figsize=(10, 5))
+    fig_bar.patch.set_facecolor(BG)
+    ax.set_facecolor(AX_BG)
     N = len(labels)
     ax.barh(range(N), sims, color=colors, height=0.55, zorder=3)
-    ax.axvline(0.55, color="#F39C12", lw=1.5, ls="--", zorder=4, label="Suspicious (0.55)")
-    ax.axvline(0.75, color="#E74C3C", lw=1.5, ls="--", zorder=4, label="High-risk (0.75)")
-
+    ax.axvline(0.55, color="#F39C12", lw=1.5, ls="--", zorder=4)
+    ax.axvline(0.75, color="#E74C3C", lw=1.5, ls="--", zorder=4)
+    ax.text(0.551, N - 0.1, "Suspicious", color="#F39C12", fontsize=7.5, va="top")
+    ax.text(0.751, N - 0.1, "High-risk",  color="#E74C3C", fontsize=7.5, va="top")
     for i, (sim, arch) in enumerate(zip(sims, archetypes)):
         ax.text(sim + 0.008, i, f"{sim:.3f}  [{arch}]",
                 va="center", ha="left", fontsize=8.5, color="white", zorder=5)
-
     ax.set_yticks(range(N))
     ax.set_yticklabels(labels, fontsize=9, color="white")
-    ax.set_xlim(0, 1.12)
+    ax.set_xlim(0, 1.18)
     ax.set_xlabel("Max Cosine Similarity to Scam Archetype", color="#AAAAAA", fontsize=10)
     ax.set_title(
-        "MiniLM Intent Boundary: Whistleblower (Education) vs Scammer (Targeting)\n"
-        "paraphrase-multilingual-MiniLM-L12-v2 · same sentences, different intent",
-        color="white", fontsize=11, pad=12,
+        "MiniLM Intent Similarity: Whistleblower vs Scammer\n"
+        "paraphrase-multilingual-MiniLM-L12-v2 · 384-dim → cosine distance",
+        color="white", fontsize=11, pad=10,
     )
     ax.tick_params(colors="#AAAAAA")
     for spine in ax.spines.values():
         spine.set_edgecolor("#333344")
     ax.grid(axis="x", color="#2A2D3A", zorder=0)
-    ax.legend(facecolor="#1A1D27", edgecolor="#444455", labelcolor="white", fontsize=9,
-              loc="lower right")
+    ax.legend(handles=[
+        mpatches.Patch(color=LAWYER_COLOR,  label="Whistleblower — Educational"),
+        mpatches.Patch(color=SCAMMER_COLOR, label="Scammer — Targeting victim"),
+    ], loc="lower right", facecolor=AX_BG, edgecolor="#444455", labelcolor="white", fontsize=9)
+    plt.tight_layout()
 
-    import matplotlib.patches as mpatches
-    legend_patches = [
-        mpatches.Patch(color=LAWYER_COLOR,  label="Lawyer — Educational (3rd-person)"),
-        mpatches.Patch(color=SCAMMER_COLOR, label="Scammer — Targeting victim (2nd-person)"),
-    ]
-    ax.legend(handles=legend_patches, loc="lower right",
-              facecolor="#1A1D27", edgecolor="#444455", labelcolor="white", fontsize=9)
+    # ── Figure 2: PCA scatter ─────────────────────────────────────────────
+    fig_pca, ax2 = plt.subplots(figsize=(9, 7))
+    fig_pca.patch.set_facecolor(BG)
+    ax2.set_facecolor(AX_BG)
 
+    # draw confidence ellipses for the two sample groups
+    for grp_idx, (gcol, gname) in enumerate([(LAWYER_COLOR, "Whistleblower"), (SCAMMER_COLOR, "Scammer")]):
+        pts_g = sample_pts[grp_idx * 3: grp_idx * 3 + 3]
+        cx, cy = pts_g.mean(axis=0)
+        std = pts_g.std(axis=0).clip(min=0.005)
+        ell = Ellipse((cx, cy), width=std[0] * 5, height=std[1] * 5,
+                      angle=0, color=gcol, alpha=0.12, zorder=1)
+        ax2.add_patch(ell)
+
+    # archetype centroids
+    ax2.scatter(arch_pts[:, 0], arch_pts[:, 1],
+                c=ARCHETYPE_COLOR, marker="D", s=80, zorder=3, alpha=0.6,
+                label="Scam Archetype Centroid")
+    for i, lbl in enumerate(arch_labels):
+        ax2.annotate(lbl, arch_pts[i], fontsize=6.5, color="#888899",
+                     xytext=(4, 4), textcoords="offset points")
+
+    # sample points
+    ax2.scatter(sample_pts[:, 0], sample_pts[:, 1],
+                c=colors, s=160, zorder=5, edgecolors="white", linewidths=0.8)
+    for i, lbl in enumerate(labels):
+        short = lbl.split("\n")[0]
+        ax2.annotate(short, sample_pts[i], fontsize=8, color="white",
+                     xytext=(6, 4), textcoords="offset points", fontweight="bold")
+
+    ax2.set_xlabel(f"PC1 ({ev[0]:.1%} variance)", color="#AAAAAA", fontsize=10)
+    ax2.set_ylabel(f"PC2 ({ev[1]:.1%} variance)", color="#AAAAAA", fontsize=10)
+    ax2.set_title(
+        "384-dim Embedding Space — PCA Projection\n"
+        "Whistleblower vs Scammer vs Archetype Centroids",
+        color="white", fontsize=11, pad=10,
+    )
+    ax2.tick_params(colors="#AAAAAA")
+    for spine in ax2.spines.values():
+        spine.set_edgecolor("#333344")
+    ax2.grid(color="#2A2D3A", zorder=0)
+    ax2.legend(handles=[
+        mpatches.Patch(color=LAWYER_COLOR,  label="Whistleblower (Educational)"),
+        mpatches.Patch(color=SCAMMER_COLOR, label="Scammer (Targeting victim)"),
+        mpatches.Patch(color=ARCHETYPE_COLOR, label="Scam Archetype Centroid"),
+    ], facecolor=AX_BG, edgecolor="#444455", labelcolor="white", fontsize=9)
     plt.tight_layout()
 
     table_md = (
@@ -781,7 +851,7 @@ def run_embedding_demo() -> tuple[plt.Figure, str]:
         + "\n".join(rows)
         + "\n\n> **Thresholds:** ✅ Safe < 0.55 · ⚠️ Suspicious 0.55–0.75 · 🚨 High-risk ≥ 0.75"
     )
-    return fig, table_md
+    return fig_bar, fig_pca, table_md
 
 
 # ---------------------------------------------------------------------------
@@ -1039,13 +1109,15 @@ with gr.Blocks(title="多模態防詐防禦框架") as demo:
                 "驗證 embedding 能區分「談論詐騙」與「正在詐騙」。"
             )
             demo_btn = gr.Button("▶ 執行 Embedding 示範", variant="primary", size="lg")
-            demo_plot = gr.Plot(label="Intent Similarity Chart")
+            with gr.Row():
+                demo_plot_bar = gr.Plot(label="Intent Similarity (Cosine Distance)")
+                demo_plot_pca = gr.Plot(label="384-dim Embedding Space (PCA Projection)")
             demo_table = gr.Markdown()
 
             demo_btn.click(
                 run_embedding_demo,
                 inputs=[],
-                outputs=[demo_plot, demo_table],
+                outputs=[demo_plot_bar, demo_plot_pca, demo_table],
             )
 
     gr.Markdown("""

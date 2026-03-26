@@ -105,3 +105,66 @@ plt.tight_layout()
 out = Path(__file__).parent / "intent_boundary.png"
 plt.savefig(out, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
 print(f"Saved → {out}")
+
+# ── PCA scatter ───────────────────────────────────────────────────────────────
+from sklearn.decomposition import PCA
+from modules.text.intent_embedder import IntentEmbedder as _IE
+from modules.text.scam_patterns import SCAM_ARCHETYPES
+
+# reuse already-loaded embedder
+arch_keys   = list(embedder._centroids.keys())
+arch_vecs   = [embedder._centroids[k] for k in arch_keys]
+arch_labels = [k.replace("_", " ").title() for k in arch_keys]
+
+sample_vecs = [embedder.embed(t) for t in texts]
+all_vecs    = np.stack(sample_vecs + arch_vecs)
+pca         = PCA(n_components=2, random_state=42)
+pts         = pca.fit_transform(all_vecs)
+ev          = pca.explained_variance_ratio_
+
+sample_pts = pts[:len(labels)]
+arch_pts   = pts[len(labels):]
+
+ARCHETYPE_COLOR = "#888899"
+fig2, ax2 = plt.subplots(figsize=(9, 7))
+fig2.patch.set_facecolor("#0F1117")
+ax2.set_facecolor("#1A1D27")
+
+from matplotlib.patches import Ellipse
+for grp_idx, gcol in enumerate([LAWYER_COLOR, SCAMMER_COLOR]):
+    pts_g = sample_pts[grp_idx * 3: grp_idx * 3 + 3]
+    cx, cy = pts_g.mean(axis=0)
+    std = pts_g.std(axis=0).clip(min=0.005)
+    ax2.add_patch(Ellipse((cx, cy), width=std[0]*5, height=std[1]*5,
+                          color=gcol, alpha=0.12, zorder=1))
+
+ax2.scatter(arch_pts[:, 0], arch_pts[:, 1], c=ARCHETYPE_COLOR,
+            marker="D", s=80, zorder=3, alpha=0.6, label="Scam Archetype Centroid")
+for i, lbl in enumerate(arch_labels):
+    ax2.annotate(lbl, arch_pts[i], fontsize=6.5, color="#888899",
+                 xytext=(4, 4), textcoords="offset points")
+
+ax2.scatter(sample_pts[:, 0], sample_pts[:, 1], c=colors[:len(labels)],
+            s=160, zorder=5, edgecolors="white", linewidths=0.8)
+for i, lbl in enumerate(labels):
+    ax2.annotate(lbl.split("\n")[0], sample_pts[i], fontsize=8, color="white",
+                 xytext=(6, 4), textcoords="offset points", fontweight="bold")
+
+ax2.set_xlabel(f"PC1 ({ev[0]:.1%} variance)", color="#AAAAAA", fontsize=10)
+ax2.set_ylabel(f"PC2 ({ev[1]:.1%} variance)", color="#AAAAAA", fontsize=10)
+ax2.set_title("384-dim Embedding Space — PCA Projection\nWhistleblower vs Scammer vs Archetype Centroids",
+              color="white", fontsize=11, pad=10)
+ax2.tick_params(colors="#AAAAAA")
+for spine in ax2.spines.values():
+    spine.set_edgecolor("#333344")
+ax2.grid(color="#2A2D3A", zorder=0)
+ax2.legend(handles=[
+    mpatches.Patch(color=LAWYER_COLOR,   label="Whistleblower (Educational)"),
+    mpatches.Patch(color=SCAMMER_COLOR,  label="Scammer (Targeting victim)"),
+    mpatches.Patch(color=ARCHETYPE_COLOR,label="Scam Archetype Centroid"),
+], facecolor="#1A1D27", edgecolor="#444455", labelcolor="white", fontsize=9)
+plt.tight_layout()
+
+out2 = Path(__file__).parent / "embedding_space.png"
+plt.savefig(out2, dpi=150, bbox_inches="tight", facecolor=fig2.get_facecolor())
+print(f"Saved → {out2}")
