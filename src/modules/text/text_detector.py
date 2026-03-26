@@ -93,7 +93,16 @@ class TextDetector:
         # 5. Score fusion
         intent_score = float(np.clip(intent.max_similarity, 0.0, 1.0))
         # RAG fallback = 0.0: no evidence should not contribute to scam probability
-        rag_score = rag.scam_chunk_ratio if self._rag_available else 0.0
+        raw_rag_score = rag.scam_chunk_ratio if self._rag_available else 0.0
+
+        # Attenuate RAG score when intent similarity is weak.
+        # Legitimate content (lawyers, educators) discussing fraud topics will
+        # semantically match the RAG corpus without actually being scam text.
+        # Intent must anchor the RAG signal — same logic as red_flag_boost.
+        if intent_score >= SCAM_SIMILARITY_MID:
+            rag_score = raw_rag_score
+        else:
+            rag_score = raw_rag_score * (intent_score / SCAM_SIMILARITY_MID)
 
         # Attenuate red-flag boost when intent similarity is weak.
         # Keywords like "轉帳" or "立即" appear legitimately in legal/educational content;
