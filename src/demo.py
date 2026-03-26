@@ -775,8 +775,9 @@ def run_embedding_demo() -> tuple[plt.Figure, plt.Figure, str]:
     pts  = pca.fit_transform(all_vecs)               # (15, 2)
     ev   = pca.explained_variance_ratio_
 
-    sample_pts   = pts[:6]
-    arch_pts     = pts[6:]
+    n_samples    = len(_DEMO_SAMPLES)
+    sample_pts   = pts[:n_samples]
+    arch_pts     = pts[n_samples:]
 
     # ── Figure 1: bar chart ───────────────────────────────────────────────
     fig_bar, ax = plt.subplots(figsize=(10, 5))
@@ -816,9 +817,11 @@ def run_embedding_demo() -> tuple[plt.Figure, plt.Figure, str]:
     fig_pca.patch.set_facecolor(BG)
     ax2.set_facecolor(AX_BG)
 
-    # draw confidence ellipses for the two sample groups
-    for grp_idx, (gcol, gname) in enumerate([(LAWYER_COLOR, "Whistleblower"), (SCAMMER_COLOR, "Scammer")]):
-        pts_g = sample_pts[grp_idx * 3: grp_idx * 3 + 3]
+    # draw confidence ellipses per group (lawyer=blue, scammer=red)
+    lawyer_idx  = [i for i, (_, _, g) in enumerate(_DEMO_SAMPLES) if g == "lawyer"]
+    scammer_idx = [i for i, (_, _, g) in enumerate(_DEMO_SAMPLES) if g == "scammer"]
+    for idx_list, gcol in [(lawyer_idx, LAWYER_COLOR), (scammer_idx, SCAMMER_COLOR)]:
+        pts_g = sample_pts[idx_list]
         cx, cy = pts_g.mean(axis=0)
         std = pts_g.std(axis=0).clip(min=0.005)
         ell = Ellipse((cx, cy), width=std[0] * 5, height=std[1] * 5,
