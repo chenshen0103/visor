@@ -689,6 +689,100 @@ def analyze_video_url(
 
 
 # ---------------------------------------------------------------------------
+# Tab 5 — Embedding Demo: Whistleblower vs Scammer
+# ---------------------------------------------------------------------------
+_DEMO_SAMPLES = [
+    # (label, text, group)
+    ("Lawyer A\n(3rd-person, educating)",
+     "詐騙者常假冒檢察官，告知民眾帳戶涉及洗錢，要求轉帳至「安全帳戶」配合調查。",
+     "lawyer"),
+    ("Lawyer B\n(3rd-person, analysis)",
+     "假冒公務機關詐騙的特徵是以電話施壓，聲稱受害者涉及犯罪，並要求保密不得告知家人。",
+     "lawyer"),
+    ("Lawyer C\n(legal education)",
+     "根據刑法第339條，詐欺罪最高可處五年有期徒刑。民眾若接到可疑電話應立即掛斷並撥165。",
+     "lawyer"),
+    ("Scammer A\n(fake police)",
+     "你的帳戶已被列為洗錢共犯，請立即配合檢察官指示，將存款轉入安全帳戶，否則將遭逮捕。",
+     "scammer"),
+    ("Scammer B\n(investment fraud)",
+     "這個內部消息只有你知道，保證獲利300%，今天就要匯款，機會稍縱即逝，不要告訴任何人。",
+     "scammer"),
+    ("Scammer C\n(ATM deduction)",
+     "您好，我是銀行客服，您的信用卡被誤設為商業帳戶，請馬上前往ATM按照我的指示操作解除。",
+     "scammer"),
+]
+
+
+def run_embedding_demo() -> tuple[plt.Figure, str]:
+    """Compute intent similarities for lawyer vs scammer samples and return chart + table."""
+    embedder = _text_det._embedder
+    LAWYER_COLOR  = "#4A90D9"
+    SCAMMER_COLOR = "#E74C3C"
+
+    labels, sims, colors, archetypes = [], [], [], []
+    rows = []
+    for label, text, group in _DEMO_SAMPLES:
+        r = embedder.compute_scam_distances(text)
+        labels.append(label)
+        sims.append(r.max_similarity)
+        colors.append(LAWYER_COLOR if group == "lawyer" else SCAMMER_COLOR)
+        archetypes.append(r.closest_name_en)
+        verdict = ("🚨 High-risk" if r.max_similarity >= 0.75
+                   else "⚠️ Suspicious" if r.max_similarity >= 0.55
+                   else "✅ Safe")
+        rows.append(f"| **{label.replace(chr(10), ' ')}** | {r.max_similarity:.3f} | {r.closest_name_en} | {verdict} |")
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    fig.patch.set_facecolor("#0F1117")
+    ax.set_facecolor("#1A1D27")
+
+    N = len(labels)
+    ax.barh(range(N), sims, color=colors, height=0.55, zorder=3)
+    ax.axvline(0.55, color="#F39C12", lw=1.5, ls="--", zorder=4, label="Suspicious (0.55)")
+    ax.axvline(0.75, color="#E74C3C", lw=1.5, ls="--", zorder=4, label="High-risk (0.75)")
+
+    for i, (sim, arch) in enumerate(zip(sims, archetypes)):
+        ax.text(sim + 0.008, i, f"{sim:.3f}  [{arch}]",
+                va="center", ha="left", fontsize=8.5, color="white", zorder=5)
+
+    ax.set_yticks(range(N))
+    ax.set_yticklabels(labels, fontsize=9, color="white")
+    ax.set_xlim(0, 1.12)
+    ax.set_xlabel("Max Cosine Similarity to Scam Archetype", color="#AAAAAA", fontsize=10)
+    ax.set_title(
+        "MiniLM Intent Boundary: Whistleblower (Education) vs Scammer (Targeting)\n"
+        "paraphrase-multilingual-MiniLM-L12-v2 · same sentences, different intent",
+        color="white", fontsize=11, pad=12,
+    )
+    ax.tick_params(colors="#AAAAAA")
+    for spine in ax.spines.values():
+        spine.set_edgecolor("#333344")
+    ax.grid(axis="x", color="#2A2D3A", zorder=0)
+    ax.legend(facecolor="#1A1D27", edgecolor="#444455", labelcolor="white", fontsize=9,
+              loc="lower right")
+
+    import matplotlib.patches as mpatches
+    legend_patches = [
+        mpatches.Patch(color=LAWYER_COLOR,  label="Lawyer — Educational (3rd-person)"),
+        mpatches.Patch(color=SCAMMER_COLOR, label="Scammer — Targeting victim (2nd-person)"),
+    ]
+    ax.legend(handles=legend_patches, loc="lower right",
+              facecolor="#1A1D27", edgecolor="#444455", labelcolor="white", fontsize=9)
+
+    plt.tight_layout()
+
+    table_md = (
+        "### Intent Similarity Results\n\n"
+        "| Sample | Similarity | Closest Archetype | Verdict |\n"
+        "|--------|:----------:|-------------------|--------|\n"
+        + "\n".join(rows)
+        + "\n\n> **Thresholds:** ✅ Safe < 0.55 · ⚠️ Suspicious 0.55–0.75 · 🚨 High-risk ≥ 0.75"
+    )
+    return fig, table_md
+
+
+# ---------------------------------------------------------------------------
 # Tab 4 — Unified Analysis (video file OR url, photo, text)
 # ---------------------------------------------------------------------------
 def analyze_unified(
@@ -931,6 +1025,25 @@ with gr.Blocks(title="多模態防詐防禦框架") as demo:
                 analyze_unified,
                 inputs=[uni_vid, uni_vid_url, uni_img, uni_txt],
                 outputs=uni_result,
+            )
+
+        # ---- Tab 5: Embedding Demo ----
+        with gr.TabItem("🧪 Embedding 示範"):
+            gr.Markdown(
+                "## Whistleblower vs Scammer — MiniLM Intent Boundary\n\n"
+                "**同樣的詐騙主題，不同的語氣立場。** "
+                "吹哨者（律師）以**第三人稱描述**手法；詐騙者以**第二人稱命令式**鎖定受害者。\n\n"
+                "點擊下方按鈕，即時計算六句話對詐騙 archetype 的 cosine similarity，"
+                "驗證 embedding 能區分「談論詐騙」與「正在詐騙」。"
+            )
+            demo_btn = gr.Button("▶ 執行 Embedding 示範", variant="primary", size="lg")
+            demo_plot = gr.Plot(label="Intent Similarity Chart")
+            demo_table = gr.Markdown()
+
+            demo_btn.click(
+                run_embedding_demo,
+                inputs=[],
+                outputs=[demo_plot, demo_table],
             )
 
     gr.Markdown("""
