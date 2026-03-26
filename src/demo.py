@@ -703,6 +703,14 @@ _DEMO_SAMPLES = [
     ("Whistleblower C\n(lawyer, action advice)",
      "收到這種電話，你第一個動作不是配合，是掛斷，然後打給你認識的人確認，不要一個人做決定。",
      "lawyer"),
+    # Real TikTok video — 湯詠煊律師 @stigmergy2023 discussing romance fraud case
+    # Whisper-transcribed, score=0.354 (well below 0.55 Safe threshold)
+    ("★ Real TikTok\n(湯律師 @stigmergy2023)",
+     "有一個年輕的小弟弟他就上網跟這個正妹聊天聊到後來就是每天都會互相早安晚安然後互噴老公老婆"
+     "他都沒有看過他就已經交了這麼個女朋友了後來有一天正妹就跟他說爸爸有生病什麼的然後就要他提供金融卡密碼"
+     "這個小弟弟他就變成人頭帳戶了這種案件我們見過的多了關鍵就是我們把這個小弟弟跟這個正妹整個聊天的對話"
+     "這些證據趕快保留下來提供給法官他就是真的被信任騙了他不是故意要幫詐騙集團的",
+     "lawyer"),
     # Scammers — first-person, explicit target, urgency + threat + action demand
     ("Scammer A\n(friend impersonation)",
      "媽，是我啦！我手機壞掉了借同學的電話，我現在在醫院要繳手術費，你先匯3萬到這個帳號給我，等下我還你。",
@@ -725,6 +733,7 @@ def run_embedding_demo() -> tuple[plt.Figure, plt.Figure, str]:
     embedder = _text_det._embedder
     LAWYER_COLOR   = "#4A90D9"
     SCAMMER_COLOR  = "#E74C3C"
+    REAL_COLOR     = "#27AE60"   # green — real TikTok video
     ARCHETYPE_COLOR = "#888899"
     BG = "#0F1117"
     AX_BG = "#1A1D27"
@@ -737,7 +746,12 @@ def run_embedding_demo() -> tuple[plt.Figure, plt.Figure, str]:
         labels.append(label)
         vecs.append(vec)
         sims.append(r.max_similarity)
-        colors.append(LAWYER_COLOR if group == "lawyer" else SCAMMER_COLOR)
+        if group == "scammer":
+            colors.append(SCAMMER_COLOR)
+        elif label.startswith("★"):
+            colors.append(REAL_COLOR)
+        else:
+            colors.append(LAWYER_COLOR)
         archetypes.append(r.closest_name_en)
         verdict = ("🚨 High-risk" if r.max_similarity >= 0.75
                    else "⚠️ Suspicious" if r.max_similarity >= 0.55
@@ -792,6 +806,7 @@ def run_embedding_demo() -> tuple[plt.Figure, plt.Figure, str]:
     ax.grid(axis="x", color="#2A2D3A", zorder=0)
     ax.legend(handles=[
         mpatches.Patch(color=LAWYER_COLOR,  label="Whistleblower — Educational"),
+        mpatches.Patch(color=REAL_COLOR,    label="★ Real TikTok (Whisper transcribed)"),
         mpatches.Patch(color=SCAMMER_COLOR, label="Scammer — Targeting victim"),
     ], loc="lower right", facecolor=AX_BG, edgecolor="#444455", labelcolor="white", fontsize=9)
     plt.tight_layout()
@@ -838,9 +853,10 @@ def run_embedding_demo() -> tuple[plt.Figure, plt.Figure, str]:
         spine.set_edgecolor("#333344")
     ax2.grid(color="#2A2D3A", zorder=0)
     ax2.legend(handles=[
-        mpatches.Patch(color=LAWYER_COLOR,  label="Whistleblower (Educational)"),
-        mpatches.Patch(color=SCAMMER_COLOR, label="Scammer (Targeting victim)"),
-        mpatches.Patch(color=ARCHETYPE_COLOR, label="Scam Archetype Centroid"),
+        mpatches.Patch(color=LAWYER_COLOR,   label="Whistleblower (Educational)"),
+        mpatches.Patch(color=REAL_COLOR,     label="★ Real TikTok (Whisper transcribed)"),
+        mpatches.Patch(color=SCAMMER_COLOR,  label="Scammer (Targeting victim)"),
+        mpatches.Patch(color=ARCHETYPE_COLOR,label="Scam Archetype Centroid"),
     ], facecolor=AX_BG, edgecolor="#444455", labelcolor="white", fontsize=9)
     plt.tight_layout()
 

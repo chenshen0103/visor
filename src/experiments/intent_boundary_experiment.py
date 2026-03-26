@@ -37,6 +37,12 @@ SAMPLES = {
         "很多人被騙之後覺得自己很蠢，其實詐騙手法非常精密，不要怪自己，趕快報案保留證據才是重點。",
     "Whistleblower C\n(action advice)":
         "收到這種電話，你第一個動作不是配合，是掛斷，然後打給你認識的人確認，不要一個人做決定。",
+    # Real TikTok — 湯詠煊律師 @stigmergy2023, Whisper transcribed, score=0.354
+    "★ Real TikTok\n(湯律師 @stigmergy2023)":
+        "有一個年輕的小弟弟他就上網跟這個正妹聊天聊到後來就是每天都會互相早安晚安然後互噴老公老婆"
+        "他都沒有看過他就已經交了這麼個女朋友了後來有一天正妹就跟他說爸爸有生病什麼的然後就要他提供金融卡密碼"
+        "這個小弟弟他就變成人頭帳戶了這種案件我們見過的多了關鍵就是我們把這個小弟弟跟這個正妹整個聊天的對話"
+        "這些證據趕快保留下來提供給法官他就是真的被信任騙了他不是故意要幫詐騙集團的",
 
     # Scammers — first-person, explicit target, urgency + threat + action demand
     "Scammer A\n(friend impersonation)":
@@ -68,7 +74,8 @@ fig, ax = plt.subplots(figsize=(10, 5))
 fig.patch.set_facecolor("#0F1117")
 ax.set_facecolor("#1A1D27")
 
-colors = [LAWYER_COLOR] * 3 + [SCAMMER_COLOR] * 3
+REAL_COLOR = "#27AE60"   # green — real TikTok video
+colors = [LAWYER_COLOR] * 3 + [REAL_COLOR] + [SCAMMER_COLOR] * 3
 bars = ax.barh(range(N), max_sims, color=colors, height=0.55, zorder=3)
 
 # Threshold lines
@@ -95,8 +102,9 @@ for spine in ax.spines.values():
 ax.grid(axis="x", color="#2A2D3A", zorder=0)
 
 legend_patches = [
-    mpatches.Patch(color=LAWYER_COLOR, label="Lawyer — Educational (3rd-person, descriptive)"),
-    mpatches.Patch(color=SCAMMER_COLOR, label="Scammer — Targeting victim (2nd-person, imperative)"),
+    mpatches.Patch(color=LAWYER_COLOR,  label="Whistleblower — Educational"),
+    mpatches.Patch(color=REAL_COLOR,    label="★ Real TikTok (Whisper transcribed)"),
+    mpatches.Patch(color=SCAMMER_COLOR, label="Scammer — Targeting victim"),
 ]
 ax.legend(handles=legend_patches, loc="lower right",
           facecolor="#1A1D27", edgecolor="#444455", labelcolor="white", fontsize=9)
