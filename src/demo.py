@@ -693,23 +693,18 @@ def analyze_video_url(
 # ---------------------------------------------------------------------------
 _DEMO_SAMPLES = [
     # (label, text, group)
-    # Whistleblowers — natural short-video lawyer tone, no fraud script keywords
-    ("Whistleblower A\n(lawyer, case experience)",
-     "這種案件我一個月至少接到五件，受害者年齡層越來越廣，不只老人，年輕人一樣會被騙。",
+    # Real TikTok — 湯詠煊律師 @stigmergy2023, Whisper-transcribed, split into 3 segments
+    ("★ Real TikTok ①\n(story setup)",
+     "有一個年輕的小弟弟他就上網跟這個正妹聊天，聊到後來就是每天都會互相早安晚安，"
+     "然後互噴老公老婆，他都沒有看過，他就已經交了這麼個女朋友了。",
      "lawyer"),
-    ("Whistleblower B\n(lawyer, victim support)",
-     "很多人被騙之後覺得自己很蠢，其實詐騙手法非常精密，不要怪自己，趕快報案保留證據才是重點。",
+    ("★ Real TikTok ②\n(fraud happens)",
+     "後來有一天正妹就跟他說爸爸有生病什麼的，然後就要他提供金融卡密碼，"
+     "這個小弟弟他就變成人頭帳戶了。",
      "lawyer"),
-    ("Whistleblower C\n(lawyer, action advice)",
-     "收到這種電話，你第一個動作不是配合，是掛斷，然後打給你認識的人確認，不要一個人做決定。",
-     "lawyer"),
-    # Real TikTok video — 湯詠煊律師 @stigmergy2023 discussing romance fraud case
-    # Whisper-transcribed, score=0.354 (well below 0.55 Safe threshold)
-    ("★ Real TikTok\n(湯律師 @stigmergy2023)",
-     "有一個年輕的小弟弟他就上網跟這個正妹聊天聊到後來就是每天都會互相早安晚安然後互噴老公老婆"
-     "他都沒有看過他就已經交了這麼個女朋友了後來有一天正妹就跟他說爸爸有生病什麼的然後就要他提供金融卡密碼"
-     "這個小弟弟他就變成人頭帳戶了這種案件我們見過的多了關鍵就是我們把這個小弟弟跟這個正妹整個聊天的對話"
-     "這些證據趕快保留下來提供給法官他就是真的被信任騙了他不是故意要幫詐騙集團的",
+    ("★ Real TikTok ③\n(lawyer's advice)",
+     "這種案件我們見過的多了，關鍵就是把這個小弟弟跟正妹整個聊天的對話這些證據趕快保留下來"
+     "提供給法官，他是真的被信任騙了，他不是故意要幫詐騙集團的。",
      "lawyer"),
     # Scammers — first-person, explicit target, urgency + threat + action demand
     ("Scammer A\n(friend impersonation)",
