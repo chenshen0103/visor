@@ -30,21 +30,21 @@ from modules.text.intent_embedder import IntentEmbedder
 
 # ── Test sentences ────────────────────────────────────────────────────────────
 SAMPLES = {
-    # 3rd-person, descriptive, educational
-    "Lawyer A\n(3rd-person, educating)":
-        "詐騙者常假冒檢察官，告知民眾帳戶涉及洗錢，要求轉帳至「安全帳戶」配合調查。",
-    "Lawyer B\n(3rd-person, analysis)":
-        "假冒公務機關詐騙的特徵是以電話施壓，聲稱受害者涉及犯罪，並要求保密不得告知家人。",
-    "Lawyer C\n(legal education)":
-        "根據刑法第339條，詐欺罪最高可處五年有期徒刑。民眾若接到可疑電話應立即掛斷並撥165。",
+    # Whistleblowers — policy / statistics / court ruling — no script language
+    "Whistleblower A\n(psych. analysis)":
+        "詐騙集團慣用時間壓力與恐懼感使受害者無法冷靜，這是社會工程攻擊的核心手法。",
+    "Whistleblower B\n(court verdict)":
+        "臺灣高等法院裁定，本案被告以假冒警察名義詐取被害人存款，判處有期徒刑三年六個月。",
+    "Whistleblower C\n(crime statistics)":
+        "根據2024年警政署統計，假冒公務機關詐騙案件達3.2萬件，全年損失逾60億元，為各類詐騙之冠。",
 
-    # 2nd-person, imperative, targeting victim
-    "Scammer A\n(fake police)":
-        "你的帳戶已被列為洗錢共犯，請立即配合檢察官指示，將存款轉入安全帳戶，否則將遭逮捕。",
-    "Scammer B\n(investment fraud)":
-        "這個內部消息只有你知道，保證獲利300%，今天就要匯款，機會稍縱即逝，不要告訴任何人。",
-    "Scammer C\n(ATM deduction)":
-        "您好，我是銀行客服，您的信用卡被誤設為商業帳戶，請馬上前往ATM按照我的指示操作解除。",
+    # Scammers — first-person, explicit target, urgency + threat + action demand
+    "Scammer A\n(friend impersonation)":
+        "媽，是我啦！我手機壞掉了借同學的電話，我現在在醫院要繳手術費，你先匯3萬到這個帳號給我，等下我還你。",
+    "Scammer B\n(full gov't script)":
+        "這裡是台北地檢署，你的帳戶涉及跨國洗錢案，為了保護你的財產安全，請你在今天內將存款全數轉到我們的監管帳戶，千萬不要告訴任何人，否則會影響辦案。",
+    "Scammer C\n(identity theft threat)":
+        "你的個資已外洩，有人正在盜用你的身分貸款，你必須立刻配合我的指示操作才能阻止損失擴大。",
 }
 
 # ── Run embeddings ────────────────────────────────────────────────────────────
